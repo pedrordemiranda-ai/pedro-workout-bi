@@ -3202,8 +3202,16 @@ function driveInit() {
       localStorage.setItem('pwbi_drive_token', resp.access_token);
       localStorage.setItem('pwbi_drive_token_exp', Date.now() + (resp.expires_in - 60) * 1000);
       updateDriveUI(true);
-      toast('✅ Google Drive conectado! Salvando dados...');
-      await driveSave();
+      // Ao conectar, NUNCA sobrescrever dados existentes no Drive automaticamente.
+      // Se já existir um backup, carrega-o; só cria um novo arquivo se ainda não houver nenhum.
+      const existing = await driveFindFile();
+      if (existing) {
+        toast('✅ Google Drive conectado! Carregando dados existentes...');
+        await driveLoad();
+      } else {
+        toast('✅ Google Drive conectado! Criando backup inicial...');
+        await driveSave();
+      }
     }
   });
   const tok = localStorage.getItem('pwbi_drive_token');
