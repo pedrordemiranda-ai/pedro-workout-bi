@@ -1028,7 +1028,7 @@ if('serviceWorker' in navigator){
 // ══════════════════════════════════════════
 //  LOGIN GATE
 // ══════════════════════════════════════════
-const LOGIN_PASS_HASH = 'fa41bbeb0f5a6e30f833c4a85a2e33dc63b059b833bbd3e6d7094d3b29a2f9f2';
+const LOGIN_PASS_HASH = '8e614d39a1f1279958da1c9f7e8df51db4aabca8cc3a3e84f8c3dc5f88e1fcfb';
 async function sha256Hex(text){
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
