@@ -1732,7 +1732,11 @@ ${last7.join('\n')}
 PESO COMPLETO (${ps.length} reg): ${ps.map(p=>`${p.date}:${p.peso}`).join(' ')}
 TREINOS (${ws.length} reg): ${ws.map(w=>`${w.date}:${w.workout}${w.tempo?'/'+w.tempo+'min':''}`).join(' ')}
 ÁGUA RECENTE: ${wa.slice(-21).map(w=>`${w.date}:${(w.copos*cfg.waterVol).toFixed(1)}L`).join(' ')}`;
-  const prompt=`Você é um analista pessoal de fitness do Pedro. Analise os dados e escolha UM ângulo de insight surpreendente, específico e acionável para hoje.
+  const prompt=`Você é um analista pessoal de fitness do Pedro. Suas análises devem ser fundamentadas no programa MAX Workouts e Lean Body Diet de Shin Ohtake. Nunca recomende mais de 3L de água/dia para homens ativos — a meta correta é ~3L. Analise os dados e escolha UM ângulo de insight surpreendente, específico e acionável para hoje.
+
+${KNOWLEDGE_BASE}
+
+---
 
 REGRAS:
 - Um único ângulo genuinamente revelador — nunca um resumo genérico
@@ -3204,6 +3208,71 @@ function initChat() {
   }
 }
 
+const KNOWLEDGE_BASE = `
+## Base de Conhecimento — Lean Body Diet & MAX Workouts (Shin Ohtake)
+
+### HIDRATAÇÃO
+- Homens ativos saudáveis: ~3,0 L/dia (≈13 copos). Mulheres ativas: ~2,2 L/dia (≈9 copos). Fonte: Institute of Medicine.
+- NUNCA recomendar 6-7 L/dia — isso é excessivo e potencialmente perigoso. A meta correta para Pedro é ~3 L/dia.
+- Água fria com hortelã ou fatia de limão ajuda na adesão.
+
+### NUTRIÇÃO — PRINCÍPIOS GERAIS
+- Não são as calorias totais que importam, mas a QUALIDADE dos alimentos (respostas hormonais).
+- Evitar TODOS os carboidratos refinados: pão, macarrão, arroz branco, cereais, farináceos — disparam insulina e promovem acúmulo de gordura.
+- Preferir carboidratos NÃO refinados: vegetais e frutas em quantidade moderada.
+- Grãos contêm lectinas (proteínas tóxicas anti-nutrientes) — evitar ao máximo.
+- Legumes, batata e arroz: OK em moderação; melhor consumi-los resfriados (amido resistente).
+
+### PROTEÍNA
+- Ativas (nível MAX Workouts): 0,8–1,0g por libra (≈1,8–2,2g/kg) de massa magra.
+- Fontes completas: carnes magras, frango, peixe, ovos, whey protein (não desnaturada, orgânica).
+- Proteína suprime fome e preserva massa muscular durante perda de peso.
+
+### CARBOIDRATOS (ECC — Effective Carbohydrate Count = total carbs - fibra)
+- Perda de peso ativa: 50–100g ECC/dia (maioria de vegetais + pouca fruta).
+- Manutenção: 100–150g ECC/dia.
+- Fase agressiva inicial: 0–50g/dia (cetose — segura, aceleradora de perda de gordura).
+- Acima de 200g/dia → ganho de peso progressivo.
+- Dia do lanche (domingo/cheat day): sem restrição — reseta hormônios de perda de peso (leptina/grelina).
+
+### GORDURA
+- Gordura NÃO engorda — desde que carboidratos estejam baixos.
+- Gorduras boas: saturadas (coco, manteiga), monoinsaturadas (azeite, abacate), poli-insaturadas (peixes, ômega-3).
+- Ômega-3 (EPA/DHA): somente de peixe (salmão selvagem, truta, arenque, cavalinha, anchovas) — combate inflamação.
+- Evitar COMPLETAMENTE: gorduras trans (alimentos processados/embalados).
+
+### FIBRA
+- Meta: 30–50g/dia. Suprime fome, regula glicemia, melhora flora intestinal.
+- Fontes: sementes de chia/linhaça, frutas vermelhas, brócolis, couve, amêndoas, nozes.
+
+### PRÉ E PÓS-TREINO
+- Pré-treino: BCAA + cafeína (café/espresso 10–20 min antes). Beta-alanina, creatina (5–20g/dia) são opcionais.
+- Pós-treino (dentro de 1h): proteína + carboidratos simples (única ocasião permitida). Ratio proteína:carb de 1:1 a 1:4 conforme massa muscular.
+- Exemplo: 20g whey protein + 20–80g de carboidrato rápido (fruta, suco orgânico).
+
+### ANTI-INFLAMATÓRIOS E ANTIOXIDANTES
+- Anti-inflamatórios: ômega-3 de peixe selvagem, ácido alfa-linolênico (ALA) de sementes (conversão limitada).
+- Antioxidantes: mirtilos, cranberry, amoras, framboesas, espinafre, couve, brócolis, nozes, amêndoas.
+- Glutationa (antioxidante mestre): aumentada por vegetais crucíferos (brócolis, couve), whey protein orgânica e exercício de alta intensidade.
+
+### PROGRAMA MAX WORKOUTS — ESTRUTURA
+- 90 dias: 4 níveis × 3 semanas cada (Nível 1→4).
+- 3 treinos/semana: A (seg), B (qua), C (sex). Cada treino: 20–30 minutos de alta intensidade.
+- Efeito "afterburn" (EPOC): queima de gordura continua horas após o treino.
+- Aquecimento dinâmico obrigatório: 5–10 min antes.
+- Recuperação: massagem de tecido profundo, foam rolling.
+- Movimentos compostos têm prioridade sobre isolados.
+- Menos é mais: intensidade > duração.
+
+### DICAS RÁPIDAS (15 insider tips do programa)
+- Comer devagar; esperar 20 min antes de repetir porção.
+- Comprar apenas no perímetro do supermercado (frescos).
+- Se vier em caixa/embalagem, provavelmente é ruim.
+- Manter snacks de nozes sempre à mão.
+- Diário alimentar no início é essencial para estimar calorias corretamente.
+- Carboidratos refinados apenas pós-treino, se necessário.
+`.trim();
+
 function buildSystemPrompt() {
   const ws = DB.workouts.slice().sort((a,b)=>a.date.localeCompare(b.date));
   const ps = DB.weights.slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -3213,7 +3282,11 @@ function buildSystemPrompt() {
   const prog = getProgramStatus();
   const nx = getNextWorkout();
 
-  return `Você é um assistente pessoal de saúde e fitness do Pedro. Responda sempre em português, de forma clara, direta e motivadora. Use dados reais para embasar suas respostas.
+  return `Você é um assistente pessoal de saúde e fitness do Pedro. Responda sempre em português, de forma clara, direta e motivadora. Use dados reais para embasar suas respostas. Suas recomendações devem ser baseadas no programa MAX Workouts e Lean Body Diet de Shin Ohtake — nunca contradiga esses princípios.
+
+${KNOWLEDGE_BASE}
+
+## Dados Pessoais do Pedro
 
 ## Perfil
 - Programa: MAX Workouts 90 dias (Shin Ohtake)
