@@ -1738,13 +1738,16 @@ ${KNOWLEDGE_BASE}
 
 ---
 
-REGRAS:
+REGRAS OBRIGATÓRIAS:
 - Um único ângulo genuinamente revelador — nunca um resumo genérico
 - Cite números reais com precisão
 - Foque nos últimos 3–7 dias; use histórico completo para comparações
 - Tipos possíveis: tendência, anomalia, previsão, correlação, recorde, padrão, alerta, conquista
 - Máx 3 frases no campo "insight". Use <strong> nos números-chave.
 - Varie o ângulo: cada dia deve revelar algo diferente
+- PROIBIDO recomendar mais de ${(cfg.waterGoal*cfg.waterVol).toFixed(1)}L de água por dia. A meta configurada já é a correta. Se mencionar água, use sempre a meta atual como referência.
+- PROIBIDO sugerir comer pão, macarrão, arroz branco, cereais ou farináceos.
+- Todas recomendações devem ser coerentes com o Lean Body Diet e MAX Workouts.
 
 Responda SOMENTE com JSON válido (sem markdown, sem blocos de código):
 {"categoria":"ÍCONE NOME EM MAIÚSCULAS","titulo":"Título curto chamativo","destaque":"valor principal (ex: -1.3kg, 94%, 7 dias)","destaque_label":"legenda breve do valor","cor":"green|blue|orange|red|cyan|gold|purple","insight":"Texto analítico com <strong> nos números. Máx 3 frases.","projecao":"Projeção ou dica prática em 1 frase."}
