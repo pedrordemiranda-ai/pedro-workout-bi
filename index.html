@@ -1710,7 +1710,7 @@ function _getAIInsightCache(){
   return null;
 }
 async function _fetchAIInsight(force){
-  const apiKey=localStorage.getItem('pwbi_apikey');
+  const apiKey=DB.config.apiKey;
   if(!apiKey)return null;
   if(!force){const c=_getAIInsightCache();if(c)return c;}
   const ws=DB.workouts.slice().sort((a,b)=>a.date.localeCompare(b.date));
@@ -2127,7 +2127,7 @@ function renderInsightOfDay(){
 
   // ── Compose sidebar ───────────────────────────
   const algoSection=pool.length?`<div id="iddAlgoWrap" class="idd-card" style="margin-bottom:20px;background:#060a16;border-color:rgba(255,255,255,.06)"><div id="iddAlgoInner"></div></div>`:'';
-  const apiKey=localStorage.getItem('pwbi_apikey');
+  const apiKey=DB.config.apiKey;
   const cached=_getAIInsightCache();
 
   if(cached){
