@@ -1757,14 +1757,15 @@ REGRAS:
 - Máx 3 frases no campo "insight". Use <strong> nos números-chave.
 - Tom: analítico e motivador — não alarmista
 - ESCOLHA DA COR conforme o teor do insight:
-  • "green"  → conquista, perda de peso, meta batida, tendência positiva, recorde, semana excelente
+  • "green"  → conquista, perda de peso ACIMA da meta semanal, meta batida, recorde pessoal, semana excelente, evolução de nível
   • "cyan"   → progresso estável, curiosidade, padrão neutro interessante
   • "blue"   → análise neutra, correlação, comparativo sem juízo de valor
   • "gold"   → atenção moderada, algo a observar mas sem urgência, dica de melhoria
-  • "orange" → alerta leve, tendência desfavorável mas reversível, queda de consistência
-  • "red"    → alerta crítico, risco real para o programa, desvio grave de tendência
+  • "orange" → alerta leve, tendência desfavorável mas reversível, queda de consistência de treinos
+  • "red"    → alerta crítico, risco real, desvio grave de tendência por 3+ semanas consecutivas
   • "purple" → insight especial, previsão de longo prazo, marco do programa
   A cor deve refletir fielmente o sentimento — notícia boa = verde, neutro = azul/dourado, preocupante = laranja/vermelho
+- REGRA CRÍTICA — PERDA DE PESO: Perder peso MAIS RÁPIDO que a meta semanal é uma CONQUISTA → use "green". NUNCA enquadre como problema ou alerta. Só use "orange" por queda de treinos. Só use "red" se perda >1.5kg/semana por 3+ semanas E com sinais objetivos de fadiga.
 
 Responda SOMENTE com JSON válido (sem markdown, sem blocos de código):
 {"categoria":"ÍCONE NOME EM MAIÚSCULAS","titulo":"Título curto chamativo","destaque":"valor principal (ex: -1.3kg, 94%, 7 dias)","destaque_label":"legenda breve do valor","cor":"green|blue|orange|red|cyan|gold|purple","insight":"Texto analítico com <strong> nos números. Máx 3 frases.","projecao":"Projeção ou dica prática em 1 frase."}
@@ -1794,26 +1795,120 @@ function _buildAICardHTML(ins){
   const c=_aiColorMap(ins.cor||'blue');
   const today=todayISO();
   const dateStr=new Date(today+'T12:00:00').toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'});
-  return `<div class="idd-card ai-insight-hero" style="margin-bottom:20px;border-color:${c.border};background:linear-gradient(160deg,#06091a 0%,#080d1c 60%,${c.bg} 100%);position:relative;overflow:hidden">
-    <div style="position:absolute;top:-60px;right:-30px;width:200px;height:200px;border-radius:50%;background:radial-gradient(circle,${c.glow} 0%,transparent 70%);pointer-events:none"></div>
+  const cfg=DB.config;
+  const ps=DB.weights.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const ws=DB.workouts.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const todayD=new Date(today+'T12:00:00');
+
+  // ── Sparkline 14 dias ──────────────────────
+  const last14=[];
+  for(let i=13;i>=0;i--){const d=new Date(todayD);d.setDate(d.getDate()-i);const iso=date2iso(d);const e=ps.find(p=>p.date===iso);last14.push(e?e.peso:null);}
+  let lv=last14.find(v=>v!==null)||0;
+  const filled=last14.map(v=>{if(v!==null){lv=v;return v;}return lv;});
+  const minW=Math.min(...filled),maxW=Math.max(...filled),range=maxW-minW||0.5;
+  const W=160,H=38;
+  const spPts=filled.map((v,i)=>`${(i/(filled.length-1)*W).toFixed(1)},${(H-((v-minW)/range)*(H-4)-2).toFixed(1)}`).join(' ');
+  const lastX=W,lastY=H-((filled[filled.length-1]-minW)/range)*(H-4)-2;
+  const sparkSvg=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none">
+    <defs><linearGradient id="spGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${c.main}" stop-opacity=".18"/><stop offset="100%" stop-color="${c.main}" stop-opacity="0"/></linearGradient></defs>
+    <polygon points="0,${H} ${spPts} ${W},${H}" fill="url(#spGrad)"/>
+    <polyline points="${spPts}" fill="none" stroke="${c.main}" stroke-width="1.8" stroke-linejoin="round" opacity=".9"/>
+    <circle cx="${lastX}" cy="${lastY}" r="3.5" fill="${c.main}" opacity=".95"/>
+    <circle cx="${lastX}" cy="${lastY}" r="6" fill="${c.main}" opacity=".15"/>
+  </svg>`;
+
+  // ── Progresso para meta ────────────────────
+  const startW=cfg.startWeight||ps[0]?.peso||0;
+  const goalW=cfg.goalWeight||80;
+  const currW=ps[ps.length-1]?.peso||startW;
+  const totalToLose=Math.max(0.1,startW-goalW);
+  const lost=startW-currW;
+  const pctGoal=Math.min(100,Math.max(0,Math.round(lost/totalToLose*100)));
+  const remaining=(currW-goalW).toFixed(1);
+
+  // ── Treinos esta semana ────────────────────
+  const dow=todayD.getDay()||7; // 1=Mon..7=Sun
+  const DSHORT=['S','T','Q','Q','S','S','D'];
+  const weekDots=Array.from({length:7},(_,i)=>{
+    const d=new Date(todayD);d.setDate(d.getDate()-(dow-1)+i);
+    const iso=date2iso(d);
+    return {hasWO:ws.some(w=>w.date===iso),isFuture:iso>today};
+  });
+  const dotsHtml=weekDots.map((d,i)=>`<div style="text-align:center">
+    <div style="width:20px;height:20px;border-radius:50%;margin:0 auto 2px;background:${d.isFuture?'rgba(255,255,255,.04)':d.hasWO?c.main:'rgba(255,255,255,.08)'};border:1.5px solid ${d.hasWO&&!d.isFuture?c.border:'rgba(255,255,255,.06)'};box-shadow:${d.hasWO&&!d.isFuture?'0 0 8px '+c.glow:'none'}"></div>
+    <div style="font-size:0.52rem;color:${d.hasWO&&!d.isFuture?c.main:'#1e293b'}">${DSHORT[i]}</div>
+  </div>`).join('');
+  const wkCount=weekDots.filter(d=>!d.isFuture&&d.hasWO).length;
+  const wkGoal=cfg.weeklyWorkouts||5;
+
+  return `<div class="idd-card ai-insight-hero" style="margin-bottom:20px;border-color:${c.border};background:linear-gradient(160deg,#06091a 0%,#080d1c 65%,${c.bg} 100%);position:relative;overflow:hidden">
+    <div style="position:absolute;top:-80px;right:-40px;width:260px;height:260px;border-radius:50%;background:radial-gradient(circle,${c.glow} 0%,transparent 68%);pointer-events:none"></div>
+
+    <!-- Header -->
     <div class="idd-header" style="border-bottom:1px solid ${c.border}">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <div class="idd-badge">✨ Insight do Dia</div>
-        <div style="background:${c.bg};border:1px solid ${c.border};color:${c.main};font-size:0.56rem;font-weight:800;padding:2px 8px;border-radius:20px;letter-spacing:2px">IA</div>
+        <div style="background:${c.bg};border:1px solid ${c.border};color:${c.main};font-size:0.55rem;font-weight:800;padding:2px 8px;border-radius:20px;letter-spacing:2px">IA</div>
         <div class="idd-date">${dateStr}</div>
       </div>
       <button onclick="window._iddForceRegen()" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);color:#475569;padding:5px 10px;border-radius:7px;cursor:pointer;font-size:0.67rem;white-space:nowrap" onmouseover="this.style.color='${c.main}'" onmouseout="this.style.color='#475569'">🔄 Novo</button>
     </div>
-    <div style="padding:16px 20px 4px;position:relative">
-      <div style="font-size:0.57rem;font-weight:800;letter-spacing:3px;color:${c.main};margin-bottom:8px">${ins.categoria}</div>
-      <div style="font-size:1.06rem;font-weight:700;color:var(--text-primary);line-height:1.35">${ins.titulo}</div>
+
+    <!-- Categoria + Título -->
+    <div style="padding:14px 20px 2px;position:relative">
+      <div style="font-size:0.57rem;font-weight:800;letter-spacing:3px;color:${c.main};margin-bottom:6px">${ins.categoria}</div>
+      <div style="font-size:1.06rem;font-weight:700;color:var(--text-primary);line-height:1.3">${ins.titulo}</div>
     </div>
-    <div style="display:flex;justify-content:center;padding:14px 20px;position:relative">
-      <div style="text-align:center;padding:14px 32px;border-radius:16px;background:${c.bg};border:1px solid ${c.border};box-shadow:0 0 40px ${c.glow},inset 0 1px 0 rgba(255,255,255,.05)">
-        <div style="font-size:2.6rem;font-weight:800;color:${c.main};line-height:1;letter-spacing:-1px">${ins.destaque}</div>
-        <div style="font-size:0.66rem;color:#475569;margin-top:5px;letter-spacing:.5px;text-transform:uppercase">${ins.destaque_label}</div>
+
+    <!-- Corpo: número destaque + painéis visuais -->
+    <div style="display:flex;gap:12px;padding:12px 20px;align-items:stretch">
+
+      <!-- Coluna esquerda: número grande -->
+      <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0">
+        <div style="text-align:center;padding:14px 18px;border-radius:14px;background:${c.bg};border:1px solid ${c.border};box-shadow:0 0 32px ${c.glow}">
+          <div style="font-size:2.2rem;font-weight:800;color:${c.main};line-height:1;letter-spacing:-1px">${ins.destaque}</div>
+          <div style="font-size:0.6rem;color:#475569;margin-top:4px;text-transform:uppercase;letter-spacing:.5px;max-width:100px">${ins.destaque_label}</div>
+        </div>
+        <!-- Treinos semana -->
+        <div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:8px 10px">
+          <div style="font-size:0.53rem;color:#334155;margin-bottom:6px;letter-spacing:.5px">TREINOS — SEMANA (${wkCount}/${wkGoal})</div>
+          <div style="display:flex;gap:4px;justify-content:space-between">${dotsHtml}</div>
+        </div>
+      </div>
+
+      <!-- Coluna direita: sparkline + barra meta -->
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">
+        <!-- Sparkline -->
+        <div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:8px 10px;flex:1">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:0.53rem;color:#334155;letter-spacing:.5px">PESO — 14 DIAS</span>
+            <span style="font-size:0.6rem;font-weight:700;color:${c.main}">${currW.toFixed(1)}kg</span>
+          </div>
+          ${sparkSvg}
+          <div style="display:flex;justify-content:space-between;margin-top:2px">
+            <span style="font-size:0.52rem;color:#1e293b">${maxW.toFixed(1)}kg</span>
+            <span style="font-size:0.52rem;color:#1e293b">${minW.toFixed(1)}kg</span>
+          </div>
+        </div>
+        <!-- Progresso meta -->
+        <div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:8px 10px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;align-items:center">
+            <span style="font-size:0.53rem;color:#334155;letter-spacing:.5px">PROGRESSO PARA META</span>
+            <span style="font-size:0.68rem;font-weight:800;color:${c.main}">${pctGoal}%</span>
+          </div>
+          <div style="height:6px;background:#0d1525;border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${pctGoal}%;background:linear-gradient(90deg,${c.main}88,${c.main});border-radius:3px;box-shadow:0 0 8px ${c.glow}"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:4px">
+            <span style="font-size:0.52rem;color:#1e293b">${startW}kg</span>
+            <span style="font-size:0.58rem;color:#475569">faltam <strong style="color:${c.main}">${remaining}kg</strong></span>
+            <span style="font-size:0.52rem;color:#1e293b">${goalW}kg</span>
+          </div>
+        </div>
       </div>
     </div>
+
+    <!-- Insight text -->
     <div style="padding:0 20px 14px;position:relative">
       <div style="font-size:0.83rem;color:#94a3b8;line-height:1.75">${ins.insight}</div>
       <div style="margin-top:12px;padding:10px 14px;background:rgba(255,255,255,.02);border-radius:10px;border-left:3px solid ${c.main}">
@@ -1821,6 +1916,8 @@ function _buildAICardHTML(ins){
         <span style="font-size:0.78rem;color:#64748b">${ins.projecao}</span>
       </div>
     </div>
+
+    <!-- Footer -->
     <div style="padding:8px 16px 12px;border-top:1px solid rgba(255,255,255,.04);display:flex;justify-content:space-between;align-items:center">
       <span style="font-size:0.58rem;color:#1e293b">Gerado por IA · atualiza diariamente</span>
       <button onclick="document.getElementById('iddAlgoWrap')?.scrollIntoView({behavior:'smooth'})" style="background:none;border:1px solid rgba(255,255,255,.07);color:#334155;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:0.63rem">📊 Ver análises</button>
