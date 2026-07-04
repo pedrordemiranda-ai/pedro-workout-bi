@@ -1732,21 +1732,30 @@ ${last7.join('\n')}
 PESO COMPLETO (${ps.length} reg): ${ps.map(p=>`${p.date}:${p.peso}`).join(' ')}
 TREINOS (${ws.length} reg): ${ws.map(w=>`${w.date}:${w.workout}${w.tempo?'/'+w.tempo+'min':''}`).join(' ')}
 ÁGUA RECENTE: ${wa.slice(-21).map(w=>`${w.date}:${(w.copos*cfg.waterVol).toFixed(1)}L`).join(' ')}`;
-  const prompt=`Você é um analista pessoal de fitness do Pedro. Suas análises devem ser fundamentadas no programa MAX Workouts e Lean Body Diet de Shin Ohtake. Nunca recomende mais de 3L de água/dia para homens ativos — a meta correta é ~3L. Analise os dados e escolha UM ângulo de insight surpreendente, específico e acionável para hoje.
+  const horaAtual=new Date().getHours();
+  const diaPrograma=Math.round((new Date(today)-new Date(cfg.startDate||today))/86400000);
+  // Retrieve last 3 insight categories to encourage variety
+  const ultimasCateg=(()=>{try{const h=JSON.parse(localStorage.getItem('pwbi_insight_hist')||'[]');return h.slice(-3).join(', ');}catch(e){return '';}})();
+
+  const prompt=`Você é um analista pessoal de fitness do Pedro. Suas análises devem ser fundamentadas no programa MAX Workouts e Lean Body Diet de Shin Ohtake. Analise os dados e gere UM insight surpreendente para hoje.
 
 ${KNOWLEDGE_BASE}
 
 ---
 
+CONTEXTO DO MOMENTO:
+- Hora atual: ${horaAtual}h | Dia ${diaPrograma} do programa
+- Últimas categorias geradas (EVITE repetir): ${ultimasCateg||'nenhuma'}
+
 REGRAS:
 - Um único ângulo genuinamente revelador — nunca um resumo genérico
-- Cite números reais dos dados com precisão
-- Foque nos últimos 3–7 dias; use histórico completo para comparações
-- Tipos possíveis: tendência, anomalia, previsão, correlação, recorde, padrão, alerta, conquista
+- Cite números reais dos dados com precisão; use histórico completo para comparações
+- Foque principalmente em tendências de PESO, evolução no PROGRAMA, TREINOS e padrões históricos
+- SOBRE ÁGUA: só mencione hidratação se for o ângulo mais relevante do dia E se for após as 17h (hora atual: ${horaAtual}h). Antes das 17h o dia ainda não encerrou — não gere alertas de "falta de água hoje"
+- Variedade obrigatória: escolha uma categoria diferente das últimas usadas. Explore ângulos como: evolução no nível atual, comparativo de treinos A/B/C, velocidade de perda vs meta, padrão dia da semana, recorde pessoal, projeção de chegada à meta, consistência semanal, correlações históricas, conquistas
+- Quando fizer recomendação quantitativa, cite a fonte entre parênteses: "(Institute of Medicine)", "(Lean Body Diet — Shin Ohtake)", "(MAX Workouts)"
 - Máx 3 frases no campo "insight". Use <strong> nos números-chave.
-- Varie o ângulo: cada dia deve revelar algo diferente
-- Todas recomendações devem vir da base de conhecimento acima (Lean Body Diet, MAX Workouts, Institute of Medicine). Quando fizer uma recomendação quantitativa (água, proteína, carboidratos, etc.), adicione entre parênteses a fonte: ex. "(Institute of Medicine)", "(Lean Body Diet — Shin Ohtake)", "(MAX Workouts)".
-- Pedro tem ${Math.round((new Date(today)-new Date(cfg.startDate||today))/86400000)} dias de programa. Use esse contexto para calibrar urgência e tom.
+- Tom: analítico e motivador — não alarmista
 
 Responda SOMENTE com JSON válido (sem markdown, sem blocos de código):
 {"categoria":"ÍCONE NOME EM MAIÚSCULAS","titulo":"Título curto chamativo","destaque":"valor principal (ex: -1.3kg, 94%, 7 dias)","destaque_label":"legenda breve do valor","cor":"green|blue|orange|red|cyan|gold|purple","insight":"Texto analítico com <strong> nos números. Máx 3 frases.","projecao":"Projeção ou dica prática em 1 frase."}
@@ -1765,6 +1774,7 @@ ${dataBlock}`;
       if(!match)return null;
       const json=JSON.parse(match[0]);
       localStorage.setItem('pwbi_ai_insight',JSON.stringify({date:todayISO(),content:json}));
+      try{const h=JSON.parse(localStorage.getItem('pwbi_insight_hist')||'[]');h.push(json.categoria);localStorage.setItem('pwbi_insight_hist',JSON.stringify(h.slice(-10)));}catch(e){}
       return json;
     }
     if(data.error)console.warn('AI insight error:',data.error.message);
