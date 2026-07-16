@@ -1357,6 +1357,7 @@ function saveWorkout(e){
     ab:document.getElementById('w_ab').value, cardio:document.getElementById('w_cardio').value,
     tempo:parseInt(document.getElementById('w_tempo').value)||0, obs:document.getElementById('w_obs').value };
   const ws=DB.workouts; ws.push(entry); ws.sort((a,b)=>a.date.localeCompare(b.date)); DB.workouts=ws;
+  localStorage.removeItem('pwbi_ai_insight');
   toast('✅ Treino salvo!'); clearWorkoutForm(); driveAutoSave();
 }
 
@@ -1381,6 +1382,7 @@ function saveWeight(e){
   const entry={id:Date.now(),date,peso,obs,tempo:existing.tempo||0,perdaG:0,perdaKg:0,pctPerdido:0};
   if(idx>=0) ws.splice(idx,1,entry); else { ws.push(entry); ws.sort((a,b)=>a.date.localeCompare(b.date)); }
   DB.weights=recalcWeights(ws,startW);
+  localStorage.removeItem('pwbi_ai_insight');
   toast('✅ Peso salvo!'); resetWeightForm(); renderWeightTable(); driveAutoSave();
 }
 
@@ -1725,13 +1727,49 @@ async function _fetchAIInsight(force){
     const w=ws.find(x=>x.date===iso),p=ps.find(x=>x.date===iso),a=wa.find(x=>x.date===iso);
     last7.push(`${iso}: ${w?'treino='+w.workout+(w.tempo?' '+w.tempo+'min':''):'sem treino'} | ${p?'peso='+p.peso+'kg':'sem peso'} | ${a?'água='+(a.copos*cfg.waterVol).toFixed(1)+'L':'sem água'}`);
   }
-  const dataBlock=`PERFIL: MAX Workouts 90d | Início ${cfg.startDate} | Hoje ${today} | Peso inicial ${cfg.startWeight}kg | Meta ${cfg.goalWeight}kg | ${prog?`Nível ${prog.level.label} sem ${prog.weekInLevel}/3 dia ${prog.daysIn}`:''}
-META: perda ${cfg.weeklyLossGoal}kg/sem | água ${cfg.waterGoal} copos/dia
-ÚLTIMOS 7 DIAS:
+  // Pre-compute stats so AI doesn't have to derive from raw data
+  const pesoAtual=ps.length?ps[ps.length-1].peso:null;
+  const pesoIni=cfg.startWeight||0;
+  const perdaTotal=pesoAtual!=null?(pesoIni-pesoAtual).toFixed(2):null;
+  const metaPerda=pesoIni-(cfg.goalWeight||0);
+  const pctMeta=metaPerda>0&&perdaTotal!=null?((perdaTotal/metaPerda)*100).toFixed(1):null;
+  const diasProg=Math.round((new Date(today)-new Date(cfg.startDate||today))/86400000);
+  const ritmoEsperado=((cfg.weeklyLossGoal||0)/7*diasProg).toFixed(2);
+  // Last 4 weeks weight trend
+  const ps28=ps.filter(p=>{const d=new Date(today)-new Date(p.date);return d>=0&&d<=28*86400000;});
+  const ps7=ps.filter(p=>{const d=new Date(today)-new Date(p.date);return d>=0&&d<=7*86400000;});
+  const perdaUlt7=ps7.length>=2?(ps7[0].peso-ps7[ps7.length-1].peso).toFixed(2):null;
+  const perdaUlt28=ps28.length>=2?(ps28[0].peso-ps28[ps28.length-1].peso).toFixed(2):null;
+  // Plateau detection: variation in last 7 days
+  const platoPesos=ps7.map(p=>p.peso);
+  const platoAmpl=platoPesos.length>1?(Math.max(...platoPesos)-Math.min(...platoPesos)).toFixed(2):null;
+  // Workout consistency
+  const ws28=ws.filter(w=>{const d=new Date(today)-new Date(w.date);return d>=0&&d<=28*86400000;});
+  const ws7=ws.filter(w=>{const d=new Date(today)-new Date(w.date);return d>=0&&d<=7*86400000;});
+  // Workout type breakdown (A/B/C)
+  const wkTypes={};ws.forEach(w=>{const t=w.workout||'?';wkTypes[t]=(wkTypes[t]||0)+1;});
+  const wkTypeSummary=Object.entries(wkTypes).map(([k,v])=>`${k}:${v}x`).join(' ');
+  // Current week Mon-Sun
+  const weekStart=new Date(todayD);weekStart.setDate(todayD.getDate()-todayD.getDay()+1);
+  const wkDays=[];for(let i=0;i<7;i++){const d=new Date(weekStart);d.setDate(weekStart.getDate()+i);wkDays.push(date2iso(d));}
+  const semanaAtual=wkDays.map(d=>{const w=ws.find(x=>x.date===d);return w?`${d}:${w.workout}`:d+':rest';}).join(' ');
+
+  const dataBlock=`PERFIL: MAX Workouts 90d | Início ${cfg.startDate} | Hoje ${today} | Dia ${diasProg} do programa
+PESO: inicial ${pesoIni}kg | atual ${pesoAtual!=null?pesoAtual+'kg':'s/dado'} | meta ${cfg.goalWeight}kg
+PERDA ACUMULADA: ${perdaTotal!=null?perdaTotal+'kg':'?'} de ${metaPerda.toFixed(1)}kg necessários = ${pctMeta!=null?pctMeta+'%':'?'} da meta atingido
+RITMO: esperado acumulado até hoje ${ritmoEsperado}kg | real acumulado ${perdaTotal||'?'}kg
+ÚLTIMOS 7 DIAS: perda=${perdaUlt7!=null?perdaUlt7+'kg':'s/dados suficientes'} | variação(platô se <0.3kg)=${platoAmpl!=null?platoAmpl+'kg':'?'}
+ÚLTIMOS 28 DIAS: perda=${perdaUlt28!=null?perdaUlt28+'kg':'s/dados'}
+META SEMANAL: ${cfg.weeklyLossGoal}kg/sem | água ${cfg.waterGoal} copos/dia
+TREINOS TOTAIS: ${ws.length} | últ 28 dias: ${ws28.length} | últ 7 dias: ${ws7.length}
+TIPOS DE TREINO: ${wkTypeSummary||'s/dados'}
+SEMANA ATUAL (Seg→Dom): ${semanaAtual}
+${prog?`NÍVEL PROGRAMA: ${prog.level.label} | semana ${prog.weekInLevel}/3 do nível`:''}
+ÚLTIMOS 7 DIAS (detalhe):
 ${last7.join('\n')}
-PESO COMPLETO (${ps.length} reg): ${ps.map(p=>`${p.date}:${p.peso}`).join(' ')}
-TREINOS (${ws.length} reg): ${ws.map(w=>`${w.date}:${w.workout}${w.tempo?'/'+w.tempo+'min':''}`).join(' ')}
-ÁGUA RECENTE: ${wa.slice(-21).map(w=>`${w.date}:${(w.copos*cfg.waterVol).toFixed(1)}L`).join(' ')}`;
+HISTÓRICO DE PESO (${ps.length} registros): ${ps.map(p=>`${p.date}:${p.peso}`).join(' ')}
+TREINOS COMPLETOS (${ws.length}): ${ws.map(w=>`${w.date}:${w.workout}${w.tempo?'/'+w.tempo+'min':''}`).join(' ')}
+ÁGUA RECENTE (21d): ${wa.slice(-21).map(w=>`${w.date}:${(w.copos*cfg.waterVol).toFixed(1)}L`).join(' ')}`;
   const horaAtual=new Date().getHours();
   const diaPrograma=Math.round((new Date(today)-new Date(cfg.startDate||today))/86400000);
   // Retrieve last 3 insight categories to encourage variety
