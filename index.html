@@ -438,6 +438,7 @@
       <div class="nav-group-tabs">
         <div class="nav-tab active" onclick="switchTab('dashboard')">📊 Dashboard</div>
         <div class="nav-tab"       onclick="switchTab('insights')">🧠 Insights</div>
+        <div class="nav-tab"       onclick="switchTab('ciclos')">🔄 Ciclos</div>
         <div class="nav-tab"       onclick="switchTab('analytics')">🔬 Analítico</div>
         <div class="nav-tab"       onclick="switchTab('assistente')"><svg viewBox="0 0 60 66" width="16" height="16" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle;margin-right:4px"><path d="M12 38 Q12 56 30 57 Q48 56 48 38 L46 18 Q38 10 30 10 Q22 10 14 18 Z" fill="#d4950a"/><ellipse cx="21" cy="31" rx="5" ry="4.5" fill="#c97800"/><ellipse cx="21" cy="31" rx="3" ry="3" fill="#0d0800"/><ellipse cx="19" cy="29" rx="1.2" ry="1" fill="#fde68a" opacity="0.8"/><ellipse cx="39" cy="31" rx="5" ry="4.5" fill="#c97800"/><ellipse cx="39" cy="31" rx="3" ry="3" fill="#0d0800"/><ellipse cx="37" cy="29" rx="1.2" ry="1" fill="#fde68a" opacity="0.8"/><rect x="20" y="45" width="20" height="6" rx="2" fill="#9a6008"/><line x1="20" y1="47" x2="40" y2="47" stroke="#7a4a06" stroke-width="0.8"/><line x1="20" y1="49" x2="40" y2="49" stroke="#7a4a06" stroke-width="0.8"/><line x1="28" y1="45" x2="28" y2="51" stroke="#7a4a06" stroke-width="0.8"/><line x1="32" y1="45" x2="32" y2="51" stroke="#7a4a06" stroke-width="0.8"/><line x1="36" y1="45" x2="36" y2="51" stroke="#7a4a06" stroke-width="0.8"/></svg>Assistente</div>
       </div>
@@ -720,6 +721,11 @@
   </div>
 </div>
 
+<!-- ════════════════ CICLOS ════════════════ -->
+<div id="page-ciclos" class="page">
+  <div id="ciclos-content"></div>
+</div>
+
 <!-- ════════════════ ANALYTICS ════════════════ -->
 <div id="page-analytics" class="page">
 
@@ -892,6 +898,9 @@
       <div class="form-actions">
         <button class="btn btn-primary" onclick="saveConfig()">💾 Salvar Configurações</button>
       </div>
+      <div style="font-size:0.8rem;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;margin:20px 0 12px">🔄 Ciclos do Programa</div>
+      <div id="cyclesList" style="margin-bottom:12px"></div>
+      <button class="btn btn-primary" onclick="startNewCycle()">➕ Iniciar Novo Ciclo</button>
     </div>
 
     <div class="card">
@@ -1084,8 +1093,53 @@ const DB = {
       waterGoal:12, waterVol:0.25
     }, JSON.parse(localStorage.getItem('pwbi_cfg')||'{}'));
   },
-  set config(v){ localStorage.setItem('pwbi_cfg',JSON.stringify(v)); }
+  set config(v){ localStorage.setItem('pwbi_cfg',JSON.stringify(v)); },
+  get cycles(){ return JSON.parse(localStorage.getItem('pwbi_cycles')||'[]'); },
+  set cycles(v){ localStorage.setItem('pwbi_cycles',JSON.stringify(v)); }
 };
+
+function getCycles(){
+  let cycles = DB.cycles;
+  if(!cycles.length){
+    const cfg = DB.config;
+    cycles = [{ id:1, label:'Ciclo 1', startDate: cfg.startDate||'2026-05-06', startWeight: cfg.startWeight||97 }];
+    DB.cycles = cycles;
+  }
+  return cycles;
+}
+
+function getCurrentCycle(){
+  const cycles = getCycles();
+  const today = todayISO();
+  // Last cycle whose startDate <= today
+  const active = cycles.filter(c=>c.startDate<=today);
+  return active[active.length-1] || cycles[0];
+}
+
+function getCycleEndDate(cycle, allCycles){
+  const idx = allCycles.findIndex(c=>c.id===cycle.id);
+  if(idx < allCycles.length-1) return allCycles[idx+1].startDate;
+  return null; // current/open cycle
+}
+
+function getCycleData(cycle, allCycles){
+  const start = cycle.startDate;
+  const end = getCycleEndDate(cycle, allCycles); // null = open
+  const ws = DB.workouts.filter(w => w.date >= start && (!end || w.date < end));
+  const ps = DB.weights.filter(p => p.date >= start && (!end || p.date < end));
+  const wa = DB.waters.filter(a => a.date >= start && (!end || a.date < end));
+  const firstWeight = ps.length ? ps[0].peso : (cycle.startWeight || DB.config.startWeight || 0);
+  const lastWeight  = ps.length ? ps[ps.length-1].peso : firstWeight;
+  const perdaTotal  = parseFloat((firstWeight - lastWeight).toFixed(2));
+  const diasDuracao = end
+    ? diffDays(start, end)
+    : Math.max(1, diffDays(start, todayISO()));
+  const semanas = (diasDuracao / 7).toFixed(1);
+  const ritmo = semanas > 0 ? (perdaTotal / parseFloat(semanas)).toFixed(2) : '—';
+  const wkByType = {};
+  ws.forEach(w=>{ if(w.workout){ wkByType[w.workout]=(wkByType[w.workout]||0)+1; } });
+  return { ws, ps, wa, firstWeight, lastWeight, perdaTotal, diasDuracao, semanas, ritmo, wkByType };
+}
 
 // ══════════════════════════════════════════
 //  UTILS
@@ -1281,6 +1335,7 @@ function switchTab(t){
   if(t==='dashboard') renderDashboard();
   if(t==='history')   renderHistory();
   if(t==='insights')  renderInsights();
+  if(t==='ciclos')    renderCiclos();
   if(t==='analytics') renderAnalytics();
   if(t==='log-weight') renderWeightTable();
   if(t==='log-water')  renderWaterPage();
@@ -1461,8 +1516,10 @@ function loadConfig(){
   document.getElementById('cfg_wg').value=c.waterGoal;
   document.getElementById('cfg_wv').value=c.waterVol;
   document.getElementById('cfg_apikey').value=c.apiKey||'';
+  renderCyclesList();
 }
 function saveConfig(){
+  const prev=DB.config;
   DB.config={ startDate:document.getElementById('cfg_start').value,
     duration:parseInt(document.getElementById('cfg_dur').value),
     startWeight:parseFloat(document.getElementById('cfg_sw').value)||0,
@@ -1473,8 +1530,42 @@ function saveConfig(){
     weeklyLossGoal:parseFloat(document.getElementById('cfg_wl').value),
     waterGoal:parseInt(document.getElementById('cfg_wg').value),
     waterVol:parseFloat(document.getElementById('cfg_wv').value)||0.25,
-    apiKey:document.getElementById('cfg_apikey').value.trim() };
+    apiKey:prev.apiKey||document.getElementById('cfg_apikey').value.trim() };
+  // Sync first cycle startDate with config startDate if only one cycle
+  const cycles=getCycles();
+  if(cycles.length===1){ cycles[0].startDate=document.getElementById('cfg_start').value; DB.cycles=cycles; }
   toast('✅ Configurações salvas!'); driveAutoSave();
+}
+function renderCyclesList(){
+  const el=document.getElementById('cyclesList'); if(!el) return;
+  const cycles=getCycles();
+  el.innerHTML=cycles.map(c=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:var(--card-bg);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+      <span style="font-weight:600;color:var(--accent-blue)">${c.label}</span>
+      <span style="font-size:0.78rem;color:var(--text-muted)">Início: ${fmtDate(c.startDate)}</span>
+      <span style="font-size:0.78rem;color:var(--text-muted)">Peso inicial: ${c.startWeight||'—'}kg</span>
+      ${cycles.indexOf(c)>0?`<button class="btn btn-danger" style="margin-left:auto;padding:2px 8px;font-size:0.72rem" onclick="deleteCycle(${c.id})">✕</button>`:'<span style="margin-left:auto"></span>'}
+    </div>`).join('');
+}
+function startNewCycle(){
+  const cycles=getCycles();
+  const ps=DB.weights.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const lastPeso=ps.length?ps[ps.length-1].peso:(DB.config.startWeight||0);
+  const newId=Math.max(...cycles.map(c=>c.id))+1;
+  const newCycle={ id:newId, label:`Ciclo ${newId}`, startDate:todayISO(), startWeight:lastPeso };
+  cycles.push(newCycle);
+  DB.cycles=cycles;
+  localStorage.removeItem('pwbi_ai_insight');
+  renderCyclesList();
+  toast(`✅ ${newCycle.label} iniciado! Reinicie os treinos a partir do 1A.`);
+  driveAutoSave();
+}
+function deleteCycle(id){
+  if(!confirm('Remover este ciclo? Os treinos e pesos continuam registrados.')) return;
+  const cycles=getCycles().filter(c=>c.id!==id);
+  DB.cycles=cycles;
+  renderCyclesList();
+  toast('Ciclo removido','warning');
 }
 
 // ══════════════════════════════════════════
@@ -1580,6 +1671,209 @@ function renderHistory(){
         <div style="font-size:0.7rem;color:var(--accent-blue);margin-top:2px">${tm}min</div>
       </div>`;
     }).join('');
+}
+
+// ══════════════════════════════════════════
+//  CICLOS
+// ══════════════════════════════════════════
+let _ciclosCharts = {};
+function renderCiclos(){
+  const el = document.getElementById('ciclos-content'); if(!el) return;
+  const cycles = getCycles();
+  const cfg = DB.config;
+
+  // Destroy old charts
+  Object.values(_ciclosCharts).forEach(c=>{try{c.destroy();}catch(e){}});
+  _ciclosCharts = {};
+
+  // ── Summary cards ──────────────────────────────────────────────────────
+  const summaryCards = cycles.map(cycle=>{
+    const d = getCycleData(cycle, cycles);
+    const allCycles = cycles;
+    const endDate = getCycleEndDate(cycle, allCycles);
+    const isActive = !endDate;
+    const niveis = [...new Set((d.ws.map(w=>w.workout).filter(Boolean).map(w=>w[0])))].sort().map(n=>`Nível ${n}`).join(' → ') || '—';
+    const tipos = Object.entries(d.wkByType).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([k,v])=>`<span class="badge bg" style="font-size:0.68rem">${k}<small style="opacity:.7"> ×${v}</small></span>`).join(' ');
+    const color = isActive ? 'var(--accent-blue)' : 'var(--accent-green)';
+    const ritmoVsMeta = d.perdaTotal > 0 && cfg.weeklyLossGoal > 0
+      ? ((parseFloat(d.ritmo) / cfg.weeklyLossGoal)*100).toFixed(0)+'%'
+      : '—';
+    return `
+    <div class="card" style="border-top:3px solid ${color};position:relative">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <div style="font-size:1.5rem;font-weight:800;color:${color}">${cycle.label}</div>
+        ${isActive?`<span style="background:rgba(59,130,246,.15);color:#60a5fa;font-size:0.7rem;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid rgba(59,130,246,.3)">● ATIVO</span>`:`<span style="background:rgba(0,255,136,.1);color:#00ff88;font-size:0.7rem;font-weight:600;padding:2px 8px;border-radius:20px;border:1px solid rgba(0,255,136,.25)">✓ CONCLUÍDO</span>`}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
+        <div style="background:var(--bg-secondary);border-radius:8px;padding:10px;text-align:center">
+          <div style="font-size:1.4rem;font-weight:800;color:var(--accent-green)">-${d.perdaTotal>0?d.perdaTotal:'0'}kg</div>
+          <div style="font-size:0.7rem;color:var(--text-muted)">Peso perdido</div>
+        </div>
+        <div style="background:var(--bg-secondary);border-radius:8px;padding:10px;text-align:center">
+          <div style="font-size:1.4rem;font-weight:800;color:var(--accent-blue)">${d.ws.length}</div>
+          <div style="font-size:0.7rem;color:var(--text-muted)">Treinos</div>
+        </div>
+        <div style="background:var(--bg-secondary);border-radius:8px;padding:10px;text-align:center">
+          <div style="font-size:1.4rem;font-weight:800;color:var(--accent-orange)">${d.diasDuracao}</div>
+          <div style="font-size:0.7rem;color:var(--text-muted)">Dias</div>
+        </div>
+      </div>
+      <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:8px">
+        <span style="color:var(--text-muted)">Período:</span> ${fmtDate(cycle.startDate)} → ${endDate?fmtDate(endDate):'hoje'}
+        &nbsp;·&nbsp; <span style="color:var(--text-muted)">Início:</span> ${cycle.startWeight||'—'}kg
+        &nbsp;·&nbsp; <span style="color:var(--text-muted)">Atual:</span> ${d.lastWeight}kg
+      </div>
+      <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:8px">
+        <span style="color:var(--text-muted)">Ritmo:</span> <strong>${d.ritmo}kg/sem</strong>
+        &nbsp;·&nbsp; <span style="color:var(--text-muted)">Meta:</span> ${cfg.weeklyLossGoal}kg/sem
+        &nbsp;·&nbsp; <span style="color:var(--text-muted)">vs meta:</span> <strong style="color:${parseFloat(d.ritmo)>=cfg.weeklyLossGoal?'var(--accent-green)':'var(--accent-orange)'}">${ritmoVsMeta}</strong>
+      </div>
+      <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:8px">Níveis: ${niveis}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">${tipos||'<span style="color:var(--text-muted);font-size:0.75rem">Sem treinos registrados</span>'}</div>
+    </div>`;
+  }).join('');
+
+  // ── Overlapping weight chart data ───────────────────────────────────────
+  const COLORS = ['#60a5fa','#00ff88','#f97316','#a78bfa','#22d3ee'];
+  const cycleDatasets = cycles.map((cycle, ci)=>{
+    const d = getCycleData(cycle, cycles);
+    const ps = d.ps.slice().sort((a,b)=>a.date.localeCompare(b.date));
+    return {
+      label: cycle.label,
+      data: ps.map(p=>({ x: diffDays(cycle.startDate, p.date), y: p.peso })),
+      borderColor: COLORS[ci%COLORS.length],
+      backgroundColor: 'transparent',
+      tension: 0.35,
+      borderWidth: 2,
+      pointRadius: 3,
+      borderDash: ci===0&&cycles.length>1?[5,3]:[],
+    };
+  });
+
+  // ── Workout bar data per cycle ──────────────────────────────────────────
+  const wkLabels = [...new Set(cycles.flatMap(c=>Object.keys(getCycleData(c,cycles).wkByType)))].sort();
+  const wkDatasets = cycles.map((cycle,ci)=>{
+    const d = getCycleData(cycle, cycles);
+    return {
+      label: cycle.label,
+      data: wkLabels.map(l=>d.wkByType[l]||0),
+      backgroundColor: COLORS[ci%COLORS.length]+'bb',
+      borderColor: COLORS[ci%COLORS.length],
+      borderWidth:1,
+      borderRadius:4,
+    };
+  });
+
+  el.innerHTML = `
+  <div style="padding:16px 0">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+      <div>
+        <h2 style="margin:0;font-size:1.3rem;font-weight:700">🔄 Ciclos do Programa</h2>
+        <p style="margin:4px 0 0;font-size:0.82rem;color:var(--text-muted)">Acompanhamento e comparativo por ciclo MAX Workouts (90 dias = 4 Níveis × 3 semanas)</p>
+      </div>
+      <button class="btn btn-primary" onclick="startNewCycle();renderCiclos()">➕ Iniciar Novo Ciclo</button>
+    </div>
+
+    <div class="chart-grid g${Math.min(cycles.length,3)}" style="margin-bottom:24px">
+      ${summaryCards}
+    </div>
+
+    ${cycles.length>=1?`
+    <div class="chart-card" style="margin-bottom:20px">
+      <div class="chart-title">📉 Evolução do Peso por Ciclo (eixo: dias desde início do ciclo)</div>
+      <div style="position:relative;height:260px"><canvas id="ciclosWeightChart"></canvas></div>
+    </div>
+    `:''}
+
+    ${wkLabels.length?`
+    <div class="chart-card">
+      <div class="chart-title">🏋️ Treinos por Tipo — Comparativo entre Ciclos</div>
+      <div style="position:relative;height:220px"><canvas id="ciclosWkChart"></canvas></div>
+    </div>
+    `:''}
+
+    <div class="chart-card" style="margin-top:20px">
+      <div class="chart-title">📊 Indicadores Globais (todos os ciclos)</div>
+      ${renderCiclosGlobal(cycles)}
+    </div>
+  </div>`;
+
+  // ── Render weight overlay chart ─────────────────────────────────────────
+  if(cycles.length>=1 && document.getElementById('ciclosWeightChart')){
+    _ciclosCharts.weight = new Chart(document.getElementById('ciclosWeightChart').getContext('2d'),{
+      type:'line',
+      data:{ datasets: cycleDatasets },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ labels:{ color:'#94a3b8' } } },
+        scales:{
+          x:{ type:'linear', title:{ display:true, text:'Dias desde início do ciclo', color:'#64748b' }, ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,.04)' } },
+          y:{ title:{ display:true, text:'Peso (kg)', color:'#64748b' }, ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,.06)' } }
+        }
+      }
+    });
+  }
+
+  // ── Render workout bar chart ────────────────────────────────────────────
+  if(wkLabels.length && document.getElementById('ciclosWkChart')){
+    _ciclosCharts.wk = new Chart(document.getElementById('ciclosWkChart').getContext('2d'),{
+      type:'bar',
+      data:{ labels:wkLabels, datasets:wkDatasets },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{ legend:{ labels:{ color:'#94a3b8' } } },
+        scales:{
+          x:{ ticks:{ color:'#94a3b8' }, grid:{ color:'rgba(255,255,255,.04)' } },
+          y:{ ticks:{ color:'#94a3b8', stepSize:1 }, grid:{ color:'rgba(255,255,255,.06)' } }
+        }
+      }
+    });
+  }
+}
+
+function renderCiclosGlobal(cycles){
+  const allWs = DB.workouts; const allPs = DB.weights;
+  const startWeight = DB.config.startWeight || 97;
+  const lastP = allPs.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const pesoAtual = lastP.length ? lastP[lastP.length-1].peso : startWeight;
+  const perdaTotal = (startWeight - pesoAtual).toFixed(2);
+  const goalWeight = DB.config.goalWeight || 75;
+  const metaTotal = startWeight - goalWeight;
+  const pctMeta = metaTotal>0 ? Math.min(100,((perdaTotal/metaTotal)*100)).toFixed(1) : 0;
+  const diasTotal = cycles.length ? Math.max(1,diffDays(cycles[0].startDate, todayISO())) : 1;
+  const semanas = (diasTotal/7).toFixed(1);
+  const ritmoGlobal = semanas>0?(perdaTotal/parseFloat(semanas)).toFixed(2):'—';
+  const barW = Math.min(100,parseFloat(pctMeta));
+  return `
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:16px">
+    <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+      <div style="font-size:1.6rem;font-weight:800;color:var(--accent-green)">-${perdaTotal}kg</div>
+      <div style="font-size:0.72rem;color:var(--text-muted)">Perda total acumulada</div>
+    </div>
+    <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+      <div style="font-size:1.6rem;font-weight:800;color:var(--accent-blue)">${allWs.length}</div>
+      <div style="font-size:0.72rem;color:var(--text-muted)">Treinos no total</div>
+    </div>
+    <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+      <div style="font-size:1.6rem;font-weight:800;color:var(--accent-orange)">${diasTotal}</div>
+      <div style="font-size:0.72rem;color:var(--text-muted)">Dias de programa</div>
+    </div>
+    <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+      <div style="font-size:1.6rem;font-weight:800;color:#a78bfa">${ritmoGlobal}kg</div>
+      <div style="font-size:0.72rem;color:var(--text-muted)">Ritmo /semana</div>
+    </div>
+    <div style="background:var(--bg-secondary);border-radius:8px;padding:12px;text-align:center">
+      <div style="font-size:1.6rem;font-weight:800;color:#22d3ee">${cycles.length}</div>
+      <div style="font-size:0.72rem;color:var(--text-muted)">Ciclos</div>
+    </div>
+  </div>
+  <div style="margin-bottom:6px;font-size:0.8rem;color:var(--text-secondary);font-weight:600">Meta global: ${startWeight}kg → ${goalWeight}kg (${pctMeta}% atingido)</div>
+  <div style="background:rgba(255,255,255,.06);border-radius:20px;height:12px;overflow:hidden">
+    <div style="height:100%;width:${barW}%;background:linear-gradient(90deg,#00ff88,#60a5fa);border-radius:20px;transition:width .6s"></div>
+  </div>
+  <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:0.72rem;color:var(--text-muted)">
+    <span>${startWeight}kg</span><span>Meta: ${goalWeight}kg</span>
+  </div>`;
 }
 
 // ══════════════════════════════════════════
@@ -1754,7 +2048,10 @@ async function _fetchAIInsight(force){
   const wkDays=[];for(let i=0;i<7;i++){const d=new Date(weekStart);d.setDate(weekStart.getDate()+i);wkDays.push(date2iso(d));}
   const semanaAtual=wkDays.map(d=>{const w=ws.find(x=>x.date===d);return w?`${d}:${w.workout}`:d+':rest';}).join(' ');
 
-  const dataBlock=`PERFIL: MAX Workouts 90d | Início ${cfg.startDate} | Hoje ${today} | Dia ${diasProg} do programa
+  const cycles=getCycles(); const currentCycle=getCurrentCycle(); const cycleD=getCycleData(currentCycle,cycles);
+  const cicloInfo=`${currentCycle.label} (início ${currentCycle.startDate}, dia ${Math.max(1,diffDays(currentCycle.startDate,today))} do ciclo) | Total de ciclos: ${cycles.length}`;
+  const dataBlock=`PERFIL: MAX Workouts 90d | Início programa ${cfg.startDate} | Hoje ${today} | Dia ${diasProg} do programa
+CICLO ATUAL: ${cicloInfo} | Treinos neste ciclo: ${cycleD.ws.length} | Perda neste ciclo: ${cycleD.perdaTotal}kg
 PESO: inicial ${pesoIni}kg | atual ${pesoAtual!=null?pesoAtual+'kg':'s/dado'} | meta ${cfg.goalWeight}kg
 PERDA ACUMULADA: ${perdaTotal!=null?perdaTotal+'kg':'?'} de ${metaPerda.toFixed(1)}kg necessários = ${pctMeta!=null?pctMeta+'%':'?'} da meta atingido
 RITMO: esperado acumulado até hoje ${ritmoEsperado}kg | real acumulado ${perdaTotal||'?'}kg
@@ -2894,12 +3191,13 @@ function exportAnalytics(){
   });
   download('pedro-analytics.csv',h+rows.join('\n'));
 }
-function exportJSON(){ download('pedro-workout-backup.json',JSON.stringify({workouts:DB.workouts,weights:DB.weights,waters:DB.waters,config:DB.config},null,2)); }
+function exportJSON(){ download('pedro-workout-backup.json',JSON.stringify({workouts:DB.workouts,weights:DB.weights,waters:DB.waters,config:DB.config,cycles:DB.cycles},null,2)); }
 function importJSON(e){
   const f=e.target.files[0]; if(!f) return;
   const r=new FileReader();
   r.onload=ev=>{ try{
     const d=JSON.parse(ev.target.result);
+    if(d.cycles) DB.cycles=d.cycles;
     if(d.workouts) DB.workouts=d.workouts;
     if(d.weights)  DB.weights=d.weights;
     if(d.waters)   DB.waters=d.waters;
@@ -3652,7 +3950,7 @@ async function driveFindFile() {
 async function driveSave(silent=false) {
   if (!driveAccessToken) { if(!silent) toast('⚠️ Conecte o Google Drive primeiro.'); return; }
   if(!silent) toast('☁️ Salvando...');
-  const data = JSON.stringify({ workouts: DB.workouts, weights: DB.weights, waters: DB.waters, config: DB.config });
+  const data = JSON.stringify({ workouts: DB.workouts, weights: DB.weights, waters: DB.waters, config: DB.config, cycles: DB.cycles });
   let fileId = localStorage.getItem('pwbi_drive_file_id');
   if (!fileId) {
     const found = await driveFindFile();
@@ -3696,6 +3994,7 @@ async function driveLoad() {
     toast('❌ Erro ao carregar do Drive (' + r.status + ').'); return;
   }
   const d = await r.json();
+  if (d.cycles) DB.cycles = d.cycles;
   if (d.workouts) DB.workouts = d.workouts;
   if (d.weights) DB.weights = d.weights;
   if (d.waters) DB.waters = d.waters;
