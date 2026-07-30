@@ -1972,9 +1972,9 @@ function renderAnalytics(){
   _charts.perda=new Chart(document.getElementById('perdaChart'),{
     type:'line', data:{
       labels:rows.map(r=>fmtDate(r.date).slice(0,5)),
-      datasets:[{ label:'Perda Acumulada (kg)', data:rows.map(r=>-r.perdaKg),
-        borderColor:'var(--accent-green)', backgroundColor:'rgba(0,255,136,.06)', tension:.3, fill:true, pointRadius:2 }]
-    }, options:{...CHART_OPT, scales:{x:{...CHART_OPT.scales.x,ticks:{...CHART_OPT.scales.x.ticks,maxTicksLimit:8}},y:{...CHART_OPT.scales.y}}}
+      datasets: cycleDatasets(rows.map(r=>fmtDate(r.date).slice(0,5)), rows.map(r=>r.date), rows.map(r=>-r.perdaKg), {pointRadius:1.5})
+    }, options:{...CHART_OPT, plugins:{...CHART_OPT.plugins, legend:{display:getCycles().length>1,position:'top',labels:{color:'#94a3b8',font:{size:9},padding:8,boxWidth:14}}},
+      scales:{x:{...CHART_OPT.scales.x,ticks:{...CHART_OPT.scales.x.ticks,maxTicksLimit:8}},y:{...CHART_OPT.scales.y}}}
   });
 
   // Histogram
@@ -2008,11 +2008,11 @@ function renderAnalytics(){
   _charts.perdaMedia=new Chart(document.getElementById('perdaMediaChart'),{
     type:'line', data:{
       labels:rows.map(r=>fmtDate(r.date).slice(0,5)),
-      datasets:[{ label:'Média Diária (g)', data:rows.map(r=>r.mediaPerda),
-        borderColor:'var(--accent-orange)', backgroundColor:'rgba(255,107,53,.06)', tension:.3, fill:true, pointRadius:2 },
+      datasets:[
+        ...cycleDatasets(rows.map(r=>fmtDate(r.date).slice(0,5)), rows.map(r=>r.date), rows.map(r=>r.mediaPerda), {pointRadius:1}),
         { label:'Meta', data:Array(rows.length).fill(-(cfg.weeklyLossGoal*1000/7).toFixed(0)),
-          borderColor:'rgba(0,255,136,.5)', borderDash:[5,3], pointRadius:0, borderWidth:1.5 }]
-    }, options:{...CHART_OPT, plugins:{...CHART_OPT.plugins,legend:{display:false}}}
+          borderColor:'rgba(0,255,136,.5)', borderDash:[5,3], pointRadius:0, borderWidth:1.5, fill:false }]
+    }, options:{...CHART_OPT, plugins:{...CHART_OPT.plugins, legend:{display:getCycles().length>1,position:'top',labels:{color:'#94a3b8',font:{size:9},padding:8,boxWidth:14,filter:i=>i.text!=='Meta'}}}}
   });
 
   // Tempo médio rolling
@@ -2020,11 +2020,11 @@ function renderAnalytics(){
   _charts.tempoMedio=new Chart(document.getElementById('tempoMedioChart'),{
     type:'line', data:{
       labels:rows.map(r=>fmtDate(r.date).slice(0,5)),
-      datasets:[{ label:'Tempo Médio (min)', data:rows.map(r=>r.tempoMed),
-        borderColor:'var(--accent-purple)', backgroundColor:'rgba(139,92,246,.06)', tension:.3, fill:true, pointRadius:2 },
+      datasets:[
+        ...cycleDatasets(rows.map(r=>fmtDate(r.date).slice(0,5)), rows.map(r=>r.date), rows.map(r=>r.tempoMed), {pointRadius:1}),
         { label:'Meta', data:Array(rows.length).fill(cfg.minutesGoal),
-          borderColor:'rgba(0,255,136,.5)', borderDash:[5,3], pointRadius:0, borderWidth:1.5 }]
-    }, options:{...CHART_OPT, plugins:{...CHART_OPT.plugins,legend:{display:false}}}
+          borderColor:'rgba(0,255,136,.5)', borderDash:[5,3], pointRadius:0, borderWidth:1.5, fill:false }]
+    }, options:{...CHART_OPT, plugins:{...CHART_OPT.plugins, legend:{display:getCycles().length>1,position:'top',labels:{color:'#94a3b8',font:{size:9},padding:8,boxWidth:14,filter:i=>i.text!=='Meta'}}}}
   });
 
   // Table
@@ -2687,6 +2687,39 @@ function renderInsightOfDay(){
 }
 
 // ══════════════════════════════════════════
+//  CYCLE PALETTE (global)
+// ══════════════════════════════════════════
+const CYCLE_COLORS = [
+  {line:'#ff6b35', fill:'rgba(255,107,53,.13)', fillSolid:'rgba(255,107,53,.7)'},
+  {line:'#60a5fa', fill:'rgba(96,165,250,.13)',  fillSolid:'rgba(96,165,250,.7)'},
+  {line:'#a78bfa', fill:'rgba(167,139,250,.13)', fillSolid:'rgba(167,139,250,.7)'},
+  {line:'#00ff88', fill:'rgba(0,255,136,.13)',   fillSolid:'rgba(0,255,136,.7)'},
+];
+function cycleIdxForDate(iso){
+  const cycles = getCycles();
+  for(let i=0;i<cycles.length;i++){
+    const next=cycles[i+1];
+    if(!next||iso<next.startDate) return i;
+  }
+  return cycles.length-1;
+}
+function cycleDatasets(labels, dates, values, opts={}){
+  const cycles = getCycles();
+  return cycles.map((cycle,ci)=>{
+    const endDate = getCycleEndDate(cycle, cycles) || '9999-12-31';
+    const cc = CYCLE_COLORS[ci%CYCLE_COLORS.length];
+    return {
+      label: cycle.label,
+      data: dates.map((d,i) => d >= cycle.startDate && d < endDate ? values[i] : null),
+      borderColor: cc.line, backgroundColor: cc.fill,
+      tension:.3, pointRadius: opts.pointRadius ?? 1.5, fill: true, spanGaps: false,
+      borderWidth: opts.borderWidth ?? 2,
+      ...(opts.extra||{})
+    };
+  });
+}
+
+// ══════════════════════════════════════════
 //  DASHBOARD
 // ══════════════════════════════════════════
 function renderDashboard(){
@@ -3109,20 +3142,6 @@ function renderDashboard(){
 
   // ── Cycle palette ─────────────────────────────────────────────────────
   const allCyclesDash = getCycles();
-  const CYCLE_COLORS = [
-    {line:'#ff6b35', fill:'rgba(255,107,53,.13)', fillSolid:'rgba(255,107,53,.7)'},  // C1 orange
-    {line:'#60a5fa', fill:'rgba(96,165,250,.13)',  fillSolid:'rgba(96,165,250,.7)'},  // C2 blue
-    {line:'#a78bfa', fill:'rgba(167,139,250,.13)', fillSolid:'rgba(167,139,250,.7)'}, // C3 purple
-    {line:'#00ff88', fill:'rgba(0,255,136,.13)',   fillSolid:'rgba(0,255,136,.7)'},   // C4 green
-  ];
-  function cycleIdxForDate(iso){
-    let idx=0;
-    for(let i=0;i<allCyclesDash.length;i++){
-      const next=allCyclesDash[i+1];
-      if(!next||iso<next.startDate) return i;
-    }
-    return allCyclesDash.length-1;
-  }
 
   // Weight chart
   dc('wc');
@@ -3819,9 +3838,10 @@ function renderInsights(){
       const futPeso = wReg ? parseFloat((wReg.slope*xIdx+wReg.intercept).toFixed(2)) : null;
       projData.push(futPeso && futPeso > goal ? futPeso : futPeso <= goal ? goal : null);
     }
+    const projCycleDs = cycleDatasets(projLabels, weights.map(w=>w.date).concat(Array(projLabels.length-weights.length).fill('9999-99-99')), actualData, {pointRadius:1.5, borderWidth:2});
     new Chart(projCtx,{type:'line',data:{labels:projLabels,datasets:[
-      {label:'Peso real (kg)',data:actualData,borderColor:'#ff6b35',backgroundColor:'rgba(255,107,53,.08)',tension:.3,pointRadius:1.5,borderWidth:2,fill:true},
-      {label:'Tendência histórica',data:trendData,borderColor:'rgba(255,107,53,.35)',borderDash:[3,3],pointRadius:0,tension:0,borderWidth:1.5},
+      ...projCycleDs,
+      {label:'Tendência histórica',data:trendData,borderColor:'rgba(255,255,255,.2)',borderDash:[3,3],pointRadius:0,tension:0,borderWidth:1.5,fill:false},
       {label:'Projeção futura',data:projData,borderColor:'rgba(251,191,36,.8)',borderDash:[6,3],pointRadius:0,tension:0,borderWidth:2},
       {label:`Meta ${goal}kg`,data:Array(projLabels.length).fill(goal),borderColor:'rgba(0,255,136,.5)',borderDash:[4,4],pointRadius:0,borderWidth:1.5}
     ]},options:{responsive:true,maintainAspectRatio:false,
