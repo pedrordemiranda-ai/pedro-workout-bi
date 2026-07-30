@@ -2105,79 +2105,95 @@ async function _fetchAIInsight(force){
   const semanaAtual=wkDays.map(d=>{const w=ws.find(x=>x.date===d);return w?`${d}:${w.workout}`:d+':rest';}).join(' ');
 
   const cycles=getCycles(); const currentCycle=getCurrentCycle(); const cycleD=getCycleData(currentCycle,cycles);
-  const cicloInfo=`${currentCycle.label} (início ${currentCycle.startDate}, dia ${Math.max(1,diffDays(currentCycle.startDate,today))} do ciclo) | Total de ciclos: ${cycles.length}`;
-  const dataBlock=`PERFIL: MAX Workouts 90d | Início programa ${cfg.startDate} | Hoje ${today} | Dia ${diasProg} do programa
-CICLO ATUAL: ${cicloInfo} | Treinos neste ciclo: ${cycleD.ws.length} | Perda neste ciclo: ${cycleD.perdaTotal}kg
-PESO: inicial ${pesoIni}kg | atual ${pesoAtual!=null?pesoAtual+'kg':'s/dado'} | meta ${cfg.goalWeight}kg
-PERDA ACUMULADA: ${perdaTotal!=null?perdaTotal+'kg':'?'} de ${metaPerda.toFixed(1)}kg necessários = ${pctMeta!=null?pctMeta+'%':'?'} da meta atingido
-RITMO: esperado acumulado até hoje ${ritmoEsperado}kg | real acumulado ${perdaTotal||'?'}kg
-ÚLTIMOS 7 DIAS: perda=${perdaUlt7!=null?perdaUlt7+'kg':'s/dados suficientes'} | variação(platô se <0.3kg)=${platoAmpl!=null?platoAmpl+'kg':'?'}
-ÚLTIMOS 28 DIAS: perda=${perdaUlt28!=null?perdaUlt28+'kg':'s/dados'}
-META SEMANAL: ${cfg.weeklyLossGoal}kg/sem | água ${cfg.waterGoal} copos/dia
-TREINOS TOTAIS: ${ws.length} | últ 28 dias: ${ws28.length} | últ 7 dias: ${ws7.length}
-TIPOS DE TREINO: ${wkTypeSummary||'s/dados'}
-SEMANA ATUAL (Seg→Dom): ${semanaAtual}
-${prog?`NÍVEL PROGRAMA: ${prog.level.label} | semana ${prog.weekInLevel}/3 do nível`:''}
-ÚLTIMOS 7 DIAS (detalhe):
-${last7.join('\n')}
-HISTÓRICO DE PESO (${ps.length} registros): ${ps.map(p=>`${p.date}:${p.peso}`).join(' ')}
-TREINOS COMPLETOS (${ws.length}): ${ws.map(w=>`${w.date}:${w.workout}${w.tempo?'/'+w.tempo+'min':''}`).join(' ')}
-ÁGUA RECENTE (21d): ${wa.slice(-21).map(w=>`${w.date}:${(w.copos*cfg.waterVol).toFixed(1)}L`).join(' ')}`;
   const horaAtual=new Date().getHours();
   const diaPrograma=Math.round((new Date(today)-new Date(cfg.startDate||today))/86400000);
-  // Retrieve last 3 insight categories to encourage variety
   const ultimasCateg=(()=>{try{const h=JSON.parse(localStorage.getItem('pwbi_insight_hist')||'[]');return h.slice(-3).join(', ');}catch(e){return '';}})();
 
-  const prompt=`Você é um analista pessoal de fitness do Pedro. Suas análises devem ser fundamentadas no programa MAX Workouts e Lean Body Diet de Shin Ohtake. Analise os dados e gere UM insight surpreendente para hoje.
+  // ── Per-cycle structured summary ───────────────────────────────────────
+  const cyclesSummary = cycles.map((c,ci)=>{
+    const d = getCycleData(c, cycles);
+    const diasC = Math.max(1, diffDays(c.startDate, getCycleEndDate(c,cycles)||today));
+    return `  ${c.label} (${c.startDate} → ${getCycleEndDate(c,cycles)||'em andamento'}): `+
+      `treinos=${d.ws.length} | perda=${d.perdaTotal}kg | dias=${diasC} | `+
+      `tipos=${Object.entries(d.wkByType||{}).map(([k,v])=>`${k}:${v}`).join(' ')||'s/dados'}`;
+  }).join('\n');
+
+  // ── Available categories based on actual data ──────────────────────────
+  const hasCycle2 = cycles.length >= 2 && getCycleData(cycles[1], cycles).ws.length >= 2;
+  const hasCycle2Enough = hasCycle2 && getCycleData(cycles[1], cycles).ws.length >= 5;
+
+  const availableCategories = [
+    `1. 🏆 RECORDE PESSOAL — melhor semana, maior perda num período, série mais longa de treinos`,
+    `2. 📈 TENDÊNCIA RECENTE — como os últimos 7-14 dias se comparam com os 14 anteriores`,
+    `3. ⚡ EFICIÊNCIA POR TREINO — qual workout (A/B/C) gerou mais perda no dia seguinte`,
+    hasCycle2Enough ? `4. 🔄 COMPARATIVO ENTRE CICLOS — ${cycles.map(c=>c.label).join(' vs ')}: mesma semana, mesmo nível` : null,
+    `5. 📅 PADRÃO DIA DA SEMANA — dia mais (ou menos) produtivo historicamente`,
+    `6. 🎯 PROJEÇÃO DE META — quando chegará em ${cfg.goalWeight}kg na taxa atual`,
+    `7. 🧬 FISIOLOGIA DO EXERCÍCIO — HIIT, EPOC, GH, Tabata aplicado aos dados do Pedro`,
+    `8. 🍽️ NUTRIÇÃO E COMPOSIÇÃO — Lean Body Diet: proteína, deficit calórico, refeições`,
+    `9. 💡 CORRELAÇÃO INESPERADA — relação não-óbvia nos dados`,
+    ws.length >= 10 ? `10. 🕐 RITMO CIRCADIANO — variação de peso por horário ou efeito do descanso` : null,
+    hasCycle2 ? `11. 🏋️ PROGRESSÃO DE CARGA — Ciclo 2 com mais peso: como compara ao ritmo de perda do Ciclo 1` : null,
+    `12. 🌟 MARCO DO PROGRAMA — porcentagem da meta global, dias totais, treinos acumulados`,
+    prog ? `13. ⏰ PRÓXIMO NÍVEL — quantos treinos faltam para avançar neste ciclo` : null,
+    `14. 💪 CONSISTÊNCIA — sequência ativa, semanas completas, presença vs ausência`,
+    hasCycle2 ? `15. 🔮 PREVISÃO ESPECIAL — se mantiver ritmo do Ciclo atual, quando atingirá ${cfg.goalWeight}kg?` : null,
+  ].filter(Boolean).join('\n');
+
+  const dataBlock=`════ DADOS VERIFICADOS — USE APENAS ESTES NÚMEROS ════
+HOJE: ${today} | Hora: ${horaAtual}h | Dia ${diaPrograma} do programa (desde ${cfg.startDate})
+
+ATENÇÃO CRÍTICA: Existem EXATAMENTE ${cycles.length} ciclo(s). NÃO invente ciclo 3, 4 ou qualquer outro não listado abaixo.
+
+CICLOS (${cycles.length} total):
+${cyclesSummary}
+
+CICLO ATUAL: ${currentCycle.label} | dia ${Math.max(1,diffDays(currentCycle.startDate,today))} do ciclo | ${cycleD.ws.length} treinos realizados
+${prog?`NÍVEL ATUAL: ${prog.level.label} | semana ${prog.weekInLevel}/3 do nível | nível ${prog.levelIdx+1} de 4`:''}
+
+PESO: início global=${pesoIni}kg | atual=${pesoAtual!=null?pesoAtual+'kg':'s/dado'} | meta=${cfg.goalWeight}kg
+PERDA GLOBAL: ${perdaTotal!=null?perdaTotal+'kg':'?'} de ${metaPerda.toFixed(1)}kg necessários = ${pctMeta!=null?pctMeta+'%':'?'}
+PERDA ÚLT 7 DIAS: ${perdaUlt7!=null?perdaUlt7+'kg':'s/dados'} | variação(platô se <0.3kg): ${platoAmpl!=null?platoAmpl+'kg':'?'}
+PERDA ÚLT 28 DIAS: ${perdaUlt28!=null?perdaUlt28+'kg':'s/dados'}
+RITMO ESPERADO ATÉ HOJE: ${ritmoEsperado}kg | REAL ACUMULADO: ${perdaTotal||'?'}kg
+META SEMANAL: ${cfg.weeklyLossGoal}kg/sem
+
+TREINOS: total=${ws.length} | últ 28d=${ws28.length} | últ 7d=${ws7.length}
+SEMANA ATUAL (Seg→Dom): ${semanaAtual}
+
+ÚLTIMOS 7 DIAS (detalhe):
+${last7.join('\n')}
+
+PESO RECENTE (${ps.slice(-14).length} registros): ${ps.slice(-14).map(p=>`${p.date}:${p.peso}`).join(' ')}
+TREINOS RECENTES (${ws.slice(-20).length}): ${ws.slice(-20).map(w=>`${w.date}:${w.workout}${w.tempo?'/'+w.tempo+'min':''}`).join(' ')}
+════════════════════════════════════════════════`;
+
+  const prompt=`Você é o analista pessoal de fitness do Pedro. Analise os dados verificados abaixo e gere UM insight surpreendente para hoje, fundamentado em MAX Workouts e Lean Body Diet (Shin Ohtake).
 
 ${KNOWLEDGE_BASE}
 
 ---
 
-CONTEXTO DO MOMENTO:
-- Hora atual: ${horaAtual}h | Dia ${diaPrograma} do programa
-- Últimas categorias geradas (EVITE repetir): ${ultimasCateg||'nenhuma'}
+REGRAS ABSOLUTAS:
+1. Use SOMENTE os números do bloco de dados. Nunca invente valores, datas ou ciclos não listados.
+2. Existem EXATAMENTE ${cycles.length} ciclo(s) — nunca mencione "Ciclo ${cycles.length+1}" ou superior.
+3. Sobre água: só mencione se for o ângulo mais relevante E se for após as 17h (hora atual: ${horaAtual}h).
+4. Cite a fonte em recomendações quantitativas: "(Institute of Medicine)", "(Lean Body Diet)", "(MAX Workouts)".
+5. Máx 3 frases em "insight". Use <strong> nos números-chave. Tom: analítico e motivador.
+6. PERDA DE PESO ACIMA DA META → sempre "green" (conquista, nunca problema).
+7. Só "red" se perda >1.5kg/semana por 3+ semanas consecutivas com sinais objetivos de fadiga.
 
-REGRAS:
-- Um único ângulo genuinamente revelador — nunca um resumo genérico do progresso geral
-- Cite números reais dos dados com precisão; use histórico COMPLETO para comparações entre ciclos
-- SOBRE ÁGUA: só mencione hidratação se for o ângulo mais relevante do dia E se for após as 17h (hora atual: ${horaAtual}h). Antes das 17h o dia ainda não encerrou — não gere alertas de "falta de água hoje"
-- Quando fizer recomendação quantitativa, cite a fonte: "(Institute of Medicine)", "(Lean Body Diet — Shin Ohtake)", "(MAX Workouts)"
-- Máx 3 frases no campo "insight". Use <strong> nos números-chave.
-- Tom: analítico e motivador — não alarmista
+ESCOLHA UMA categoria — diferente das últimas (${ultimasCateg||'nenhuma usada'}):
+${availableCategories}
 
-VARIEDADE OBRIGATÓRIA — escolha UMA categoria diferente das últimas usadas (${ultimasCateg||'nenhuma'}):
-
-GRUPO A — DESEMPENHO E EVOLUÇÃO:
-  1. 🏆 RECORDE PESSOAL — melhor semana, maior perda num período, série mais longa de treinos
-  2. 📈 TENDÊNCIA RECENTE — como os últimos 7-14 dias se comparam com os 14 anteriores (aceleração ou platô?)
-  3. ⚡ EFICIÊNCIA POR TREINO — qual workout (A/B/C) gerou mais perda no dia seguinte, neste ciclo
-  4. 🔄 COMPARATIVO ENTRE CICLOS — Ciclo 1 vs Ciclo 2: mesma semana, mesmo nível, quem saiu melhor?
-  5. 📅 PADRÃO DIA DA SEMANA — o dia mais (ou menos) produtivo historicamente, com número exato
-  6. 🎯 PROJEÇÃO DE META — quando chegará em ${cfg.goalWeight}kg na taxa atual, e qual cenário otimista vs conservador
-
-GRUPO B — CIÊNCIA E CURIOSIDADES:
-  7. 🧬 FISIOLOGIA DO EXERCÍCIO — algo do MAX Workouts (HIIT, EPOC, GH, Tabata, work capacity) aplicado aos dados do Pedro
-  8. 🍽️ NUTRIÇÃO E COMPOSIÇÃO — princípio do Lean Body Diet nos dados (proteína, carboidratos ECC, deficit calórico, refeições pré/pós treino)
-  9. 💡 CORRELAÇÃO INESPERADA — uma relação não-óbvia nos dados (ex: treinos de tarde vs manhã, dia seguinte a cardio vs força)
-  10. 🕐 RITMO CIRCADIANO — padrão de variação de peso por horário de pesagem, ou efeito do descanso semanal
-  11. 🏋️ PROGRESSÃO DE CARGA — no Ciclo 2 Pedro aumentou pesos; como isso se compara ao ritmo de perda do Ciclo 1
-
-GRUPO C — MARCO E MOTIVAÇÃO:
-  12. 🌟 MARCO DO PROGRAMA — porcentagem da meta global, dias totais, número de treinos acumulados
-  13. ⏰ TEMPO PARA PRÓXIMO NÍVEL — quantos treinos faltam para avançar ao próximo nível neste ciclo
-  14. 💪 CONSISTÊNCIA — sequência ativa, semanas completas, presença vs ausência
-  15. 🔮 PREVISÃO ESPECIAL — se mantiver ritmo do Ciclo 2, quando terminará o programa completo (peso meta)?
-- ESCOLHA DA COR conforme o teor do insight:
-  • "green"  → conquista, perda de peso ACIMA da meta semanal, meta batida, recorde pessoal, semana excelente, evolução de nível
-  • "cyan"   → progresso estável, curiosidade, padrão neutro interessante
-  • "blue"   → análise neutra, correlação, comparativo sem juízo de valor
-  • "gold"   → atenção moderada, algo a observar mas sem urgência, dica de melhoria
-  • "orange" → alerta leve, tendência desfavorável mas reversível, queda de consistência de treinos
-  • "red"    → alerta crítico, risco real, desvio grave de tendência por 3+ semanas consecutivas
-  • "purple" → insight especial, previsão de longo prazo, marco do programa
-  A cor deve refletir fielmente o sentimento — notícia boa = verde, neutro = azul/dourado, preocupante = laranja/vermelho
-- REGRA CRÍTICA — PERDA DE PESO: Perder peso MAIS RÁPIDO que a meta semanal é uma CONQUISTA → use "green". NUNCA enquadre como problema ou alerta. Só use "orange" por queda de treinos. Só use "red" se perda >1.5kg/semana por 3+ semanas E com sinais objetivos de fadiga.
+COR DO INSIGHT:
+• green  → conquista, perda acima da meta, recorde, evolução de nível
+• cyan   → progresso estável, curiosidade, padrão neutro interessante
+• blue   → análise neutra, correlação, comparativo sem juízo
+• gold   → algo a observar, dica de melhoria, atenção moderada
+• orange → alerta leve, tendência desfavorável mas reversível
+• red    → alerta crítico (critério rígido no item 7)
+• purple → previsão de longo prazo, marco especial do programa
 
 Responda SOMENTE com JSON válido (sem markdown, sem blocos de código):
 {"categoria":"ÍCONE NOME EM MAIÚSCULAS","titulo":"Título curto chamativo","destaque":"valor principal (ex: -1.3kg, 94%, 7 dias)","destaque_label":"legenda breve do valor","cor":"green|blue|orange|red|cyan|gold|purple","insight":"Texto analítico com <strong> nos números. Máx 3 frases.","projecao":"Projeção ou dica prática em 1 frase."}
@@ -2187,7 +2203,7 @@ ${dataBlock}`;
     const resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-haiku-4-5',max_tokens:512,messages:[{role:'user',content:prompt}]})
+      body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:600,messages:[{role:'user',content:prompt}]})
     });
     const data=await resp.json();
     if(data.content&&data.content[0]){
