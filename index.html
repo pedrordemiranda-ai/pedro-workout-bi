@@ -4239,7 +4239,7 @@ function renderChatMessages() {
   if (!el) return;
   el.innerHTML = chatHistory.map(m => {
     const isUser = m.role === 'user';
-    const html = m.content
+    const html = (typeof m.content === 'string' ? m.content : '')
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
       .replace(/\n/g, '<br>');
@@ -4344,8 +4344,8 @@ async function chatSend() {
     // Build history — only plain string messages (skip turn with attachment for history simplicity)
     const messages = chatHistory
       .filter(m => m.content !== '⏳ _Analisando seus dados..._')
-      .filter(m => !(m.role==='assistant' && m.content.startsWith('⚠️')))
-      .filter(m => !(m.role==='assistant' && m.content.startsWith('👋')))
+      .filter(m => !(m.role==='assistant' && typeof m.content==='string' && m.content.startsWith('⚠️')))
+      .filter(m => !(m.role==='assistant' && typeof m.content==='string' && m.content.startsWith('👋')))
       .map((m, idx, arr) => {
         // Last user message = the one we just built (with attachment)
         if (idx === arr.length - 1 && m.role === 'user') return { role:'user', content: userContent };
@@ -4358,7 +4358,8 @@ async function chatSend() {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true'
+        'anthropic-dangerous-direct-browser-access': 'true',
+        ...(attach?.type === 'pdf' ? { 'anthropic-beta': 'pdfs-2024-09-25' } : {})
       },
       body: JSON.stringify({
         model: 'claude-sonnet-5',
@@ -4372,13 +4373,15 @@ async function chatSend() {
     chatHistory.pop();
 
     if (data.content && data.content[0]) {
-      chatAddMsg('assistant', data.content[0].text);
+      const replyText = data.content.find(b=>b.type==='text')?.text;
+      chatAddMsg('assistant', replyText || '❌ Resposta sem texto da API. Tente reformular a pergunta.');
     } else if (data.error) {
       chatAddMsg('assistant', `❌ Erro: ${data.error.message}`);
     }
   } catch(e) {
     chatHistory.pop();
-    chatAddMsg('assistant', `❌ Erro de conexão: ${e.message}`);
+    const stackLine = (e.stack||'').split('\n').slice(1,3).join(' | ');
+    chatAddMsg('assistant', `❌ Erro: ${e.message}\n\n_Stack: ${stackLine}_`);
   }
 
   btn.disabled = false;
