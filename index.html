@@ -2219,6 +2219,129 @@ ${dataBlock}`;
   }catch(e){console.warn('AI insight fetch error:',e);}
   return null;
 }
+// ── Feature 3: Countdown strip ────────────────────────────────────────
+function _buildCountdownHTML(){
+  const today=todayISO();
+  const cycles=getCycles(); const curCycle=getCurrentCycle();
+  const cs=getProgramStatusForCycle(curCycle);
+  const nw=getNextWorkoutForCycle(cs);
+  if(!nw) return '';
+  const now=new Date();
+  const dow=now.getDay(); // 0=Sun
+  const trainDays=[1,3,5]; // Mon Wed Fri
+  let daysUntil=0,nextDOW=dow;
+  for(let i=0;i<=7;i++){
+    const d=(dow+i)%7;
+    if(trainDays.includes(d)){if(i===0){daysUntil=0;nextDOW=d;break;}daysUntil=i;nextDOW=d;break;}
+  }
+  const nextDate=new Date(now);
+  nextDate.setDate(nextDate.getDate()+daysUntil);
+  nextDate.setHours(6,0,0,0);
+  const msLeft=nextDate-now;
+  const hLeft=Math.max(0,Math.floor(msLeft/3600000));
+  const mLeft=Math.max(0,Math.floor((msLeft%3600000)/60000));
+  const DNAMES=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const whenLabel=daysUntil===0?'Hoje':`${DNAMES[nextDOW]}`;
+  const timeStr=daysUntil===0?'em andamento':`em ${hLeft}h ${mLeft}min`;
+  const wkInfo=(typeof MX!=='undefined'&&MX.workouts)?MX.workouts[nw.workoutCode]||{}:{};
+  return `<div id="idd-countdown" style="display:flex;align-items:center;justify-content:space-between;padding:9px 16px;background:linear-gradient(90deg,rgba(0,255,136,.04),rgba(34,211,238,.03));border:1px solid rgba(0,255,136,.12);border-radius:10px;margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:1rem">⏱️</span>
+      <div><div style="font-size:9px;color:#334155;text-transform:uppercase;letter-spacing:.8px">Próximo treino</div>
+        <div style="font-size:13px;font-weight:700;color:#00ff88">${whenLabel}</div></div>
+      <div style="display:flex;align-items:center;gap:6px;margin-left:4px">
+        <div style="padding:3px 10px;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.22);border-radius:20px;font-size:11px;font-weight:700;color:#22d3ee">${nw.workoutCode}</div>
+        <div style="font-size:11px;color:#475569">${wkInfo.name||''}</div>
+      </div>
+    </div>
+    <div id="idd-timer" style="font-size:11px;color:#334155;font-variant-numeric:tabular-nums">${timeStr}</div>
+  </div>`;
+}
+function _tickCountdown(){
+  const el=document.getElementById('idd-timer');
+  if(!el){if(window._iddTimerInterval){clearInterval(window._iddTimerInterval);window._iddTimerInterval=null;}return;}
+  const now=new Date();
+  const dow=now.getDay();
+  const trainDays=[1,3,5];
+  let daysUntil=0;
+  for(let i=0;i<=7;i++){const d=(dow+i)%7;if(trainDays.includes(d)){daysUntil=i;break;}}
+  const nextDate=new Date(now);
+  nextDate.setDate(nextDate.getDate()+daysUntil);
+  nextDate.setHours(6,0,0,0);
+  const msLeft=nextDate-now;
+  const hLeft=Math.max(0,Math.floor(msLeft/3600000));
+  const mLeft=Math.max(0,Math.floor((msLeft%3600000)/60000));
+  el.textContent=daysUntil===0?'em andamento':`em ${hLeft}h ${mLeft}min`;
+}
+
+// ── Feature 5: Cycle comparison card ──────────────────────────────────
+function _buildCycleCompareHTML(){
+  const cycles=getCycles();
+  if(cycles.length<2)return '';
+  const ps=DB.weights.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const ws=DB.workouts.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const today=todayISO();
+  const c2=cycles[1];
+  const c2Days=diffDays(c2.startDate,today);
+  if(c2Days<1)return '';
+  const compareWeeks=Math.max(1,Math.floor(c2Days/7));
+  const weekLabel=compareWeeks===1?'Semana 1':`Semanas 1–${compareWeeks}`;
+  const getCycleWeekStats=(cycle,weeks)=>{
+    const endISO=new Date(cycle.startDate+'T12:00:00');
+    endISO.setDate(endISO.getDate()+weeks*7);
+    const cutoff=date2iso(endISO);
+    const endCycle=getCycleEndDate(cycle,cycles)||'9999-12-31';
+    const actualEnd=cutoff<endCycle?cutoff:endCycle;
+    const cws=ws.filter(w=>w.date>=cycle.startDate&&w.date<actualEnd);
+    const cps=ps.filter(p=>p.date>=cycle.startDate&&p.date<actualEnd);
+    const firstP=cps[0]?.peso||0; const lastP=cps[cps.length-1]?.peso||firstP;
+    const lossKg=parseFloat((firstP-lastP).toFixed(2));
+    const avgMin=cws.length?Math.round(cws.reduce((s,w)=>s+(w.tempo||0),0)/cws.length):0;
+    return{workouts:cws.length,lossKg,avgMin};
+  };
+  const s1=getCycleWeekStats(cycles[0],compareWeeks);
+  const s2=getCycleWeekStats(cycles[1],compareWeeks);
+  if(s1.workouts===0&&s2.workouts===0)return '';
+  const c2wins=s2.lossKg>=s1.lossKg;
+  const winnerLabel=c2wins?cycles[1].label:cycles[0].label;
+  const winnerColor=c2wins?'#60a5fa':'#ff6b35';
+  const diff=parseFloat((s2.lossKg-s1.lossKg).toFixed(2));
+  const diffStr=(diff>=0?'+':'')+diff+'kg';
+  return `<div style="background:#060a16;border:1px solid rgba(255,255,255,.07);border-radius:12px;margin-bottom:12px;overflow:hidden">
+    <div style="padding:9px 14px;border-bottom:1px solid rgba(255,255,255,.04);display:flex;align-items:center;gap:8px;background:rgba(0,0,0,.15)">
+      <span>🔄</span>
+      <span style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.4px">Comparativo — ${weekLabel}</span>
+      <span style="margin-left:auto;font-size:9px;color:#1e293b">sem IA · calculado dos dados</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr auto">
+      <div style="padding:12px 14px;border-right:1px solid rgba(255,255,255,.04)">
+        <div style="font-size:9px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px;display:flex;align-items:center;gap:5px">
+          <span style="width:7px;height:7px;border-radius:50%;background:#ff6b35;display:inline-block"></span><span style="color:#ff6b35">${cycles[0].label}</span></div>
+        <div style="font-size:9px;color:#334155">Perda</div>
+        <div style="font-size:18px;font-weight:800;color:#ff6b35;font-variant-numeric:tabular-nums">−${s1.lossKg}kg</div>
+        <div style="font-size:9px;color:#475569;margin-bottom:6px">${s1.workouts} treinos</div>
+        <div style="font-size:9px;color:#334155">Tempo médio</div>
+        <div style="font-size:13px;font-weight:700;color:#ff6b35">${s1.avgMin}min</div>
+      </div>
+      <div style="padding:12px 14px;border-right:1px solid rgba(255,255,255,.04)">
+        <div style="font-size:9px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:8px;display:flex;align-items:center;gap:5px">
+          <span style="width:7px;height:7px;border-radius:50%;background:#60a5fa;display:inline-block"></span><span style="color:#60a5fa">${cycles[1].label}</span></div>
+        <div style="font-size:9px;color:#334155">Perda</div>
+        <div style="font-size:18px;font-weight:800;color:#60a5fa;font-variant-numeric:tabular-nums">−${s2.lossKg}kg</div>
+        <div style="font-size:9px;color:#475569;margin-bottom:6px">${s2.workouts} treinos</div>
+        <div style="font-size:9px;color:#334155">Tempo médio</div>
+        <div style="font-size:13px;font-weight:700;color:#60a5fa">${s2.avgMin}min</div>
+      </div>
+      <div style="padding:12px 14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:72px">
+        <span style="font-size:1.3rem">🏆</span>
+        <div style="font-size:9px;color:#64748b;text-align:center;line-height:1.3">eficiência<br>${compareWeeks===1?'sem 1':`${compareWeeks} sem`}</div>
+        <div style="font-size:11px;font-weight:700;color:${winnerColor}">${winnerLabel}</div>
+        ${s1.lossKg>0&&s2.lossKg>0?`<div style="font-size:9px;color:#334155;margin-top:2px">${diffStr}</div>`:''}
+      </div>
+    </div>
+  </div>`;
+}
+
 function _buildAICardHTML(ins){
   const c=_aiColorMap(ins.cor||'blue');
   const today=todayISO();
@@ -2228,22 +2351,83 @@ function _buildAICardHTML(ins){
   const ws=DB.workouts.slice().sort((a,b)=>a.date.localeCompare(b.date));
   const todayD=new Date(today+'T12:00:00');
 
-  // ── Sparkline 14 dias ──────────────────────
-  const last14=[];
-  for(let i=13;i>=0;i--){const d=new Date(todayD);d.setDate(d.getDate()-i);const iso=date2iso(d);const e=ps.find(p=>p.date===iso);last14.push(e?e.peso:null);}
-  let lv=last14.find(v=>v!==null)||0;
-  const filled=last14.map(v=>{if(v!==null){lv=v;return v;}return lv;});
-  const minW=Math.min(...filled),maxW=Math.max(...filled),range=maxW-minW||0.5;
-  const W=160,H=38;
-  const spPts=filled.map((v,i)=>`${(i/(filled.length-1)*W).toFixed(1)},${(H-((v-minW)/range)*(H-4)-2).toFixed(1)}`).join(' ');
-  const lastX=W,lastY=H-((filled[filled.length-1]-minW)/range)*(H-4)-2;
-  const sparkSvg=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none">
-    <defs><linearGradient id="spGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${c.main}" stop-opacity=".18"/><stop offset="100%" stop-color="${c.main}" stop-opacity="0"/></linearGradient></defs>
-    <polygon points="0,${H} ${spPts} ${W},${H}" fill="url(#spGrad)"/>
-    <polyline points="${spPts}" fill="none" stroke="${c.main}" stroke-width="1.8" stroke-linejoin="round" opacity=".9"/>
-    <circle cx="${lastX}" cy="${lastY}" r="3.5" fill="${c.main}" opacity=".95"/>
-    <circle cx="${lastX}" cy="${lastY}" r="6" fill="${c.main}" opacity=".15"/>
-  </svg>`;
+  // ── Feature 2: Category badge ──────────────
+  const catParts=(ins.categoria||'').trim().split(' ');
+  const catIcon=catParts[0]||'✨';
+  const catShort=catParts.slice(1).join(' ')||'INSIGHT DO DIA';
+
+  // ── Feature 1: Cycle mini-chart or sparkline ──
+  const allCyclesAI=getCycles();
+  const showCycleChart=allCyclesAI.length>=2;
+  let visualPanelHtml='';
+  if(showCycleChart){
+    const SVG_W=160,SVG_H=52;
+    const cyclePaths=allCyclesAI.map((cycle,ci)=>{
+      const endDate=getCycleEndDate(cycle,allCyclesAI)||today;
+      const cps=ps.filter(p=>p.date>=cycle.startDate&&p.date<=endDate);
+      if(cps.length<2)return null;
+      const pts=cps.map(p=>({x:diffDays(cycle.startDate,p.date),y:p.peso}));
+      return{pts,cc:CYCLE_COLORS[ci%CYCLE_COLORS.length],label:cycle.label,startDate:cycle.startDate};
+    }).filter(Boolean);
+    const allYs=cyclePaths.flatMap(cp=>cp.pts.map(p=>p.y));
+    const minY=Math.min(...allYs),maxY=Math.max(...allYs),yRange=maxY-minY||0.5;
+    const maxX=Math.max(...cyclePaths.flatMap(cp=>cp.pts.map(p=>p.x)),30);
+    const toX=x=>4+(x/maxX)*(SVG_W-8);
+    const toY=y=>SVG_H-4-((y-minY)/yRange)*(SVG_H-10);
+    const pathsHtml=cyclePaths.map(cp=>{
+      const pts=cp.pts.map(p=>`${toX(p.x).toFixed(1)},${toY(p.y).toFixed(1)}`).join(' ');
+      const last=cp.pts[cp.pts.length-1];
+      const areaClose=`${toX(last.x).toFixed(1)},${SVG_H} ${toX(cp.pts[0].x).toFixed(1)},${SVG_H}`;
+      return `<polygon points="${pts} ${areaClose}" fill="${cp.cc.fill}"/>
+        <polyline points="${pts}" fill="none" stroke="${cp.cc.line}" stroke-width="1.8" stroke-linejoin="round"/>
+        <circle cx="${toX(last.x).toFixed(1)}" cy="${toY(last.y).toFixed(1)}" r="3" fill="${cp.cc.line}"/>`;
+    }).join('');
+    const legendHtml=allCyclesAI.map((c2,ci)=>
+      `<span style="display:flex;align-items:center;gap:3px;font-size:9px;color:#475569"><span style="width:6px;height:6px;border-radius:50%;background:${CYCLE_COLORS[ci%CYCLE_COLORS.length].line};display:inline-block"></span>${c2.label}</span>`
+    ).join('');
+    const week1Html=cyclePaths.map(cp=>{
+      const w7pts=cp.pts.filter(p=>p.x<=7);
+      if(w7pts.length<2)return '';
+      const loss=(w7pts[0].y-w7pts[w7pts.length-1].y).toFixed(2);
+      return `<div style="text-align:center"><div style="font-size:8px;color:#475569">${cp.label} sem1</div><div style="font-size:11px;font-weight:700;color:${cp.cc.line}">−${loss}kg</div></div>`;
+    }).join('');
+    visualPanelHtml=`<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:8px 10px;flex:1">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;align-items:center">
+        <span style="font-size:0.53rem;color:#334155;letter-spacing:.5px">CICLOS SOBREPOSTOS</span>
+        <div style="display:flex;gap:6px">${legendHtml}</div>
+      </div>
+      <svg viewBox="0 0 ${SVG_W} ${SVG_H}" width="100%" height="${SVG_H}" preserveAspectRatio="none">${pathsHtml}</svg>
+      <div style="font-size:8px;color:#1e293b;margin-top:2px">dia 1 → dias desde início do ciclo</div>
+      ${week1Html?`<div style="display:flex;justify-content:space-around;padding-top:6px;border-top:1px solid rgba(255,255,255,.04);margin-top:6px">${week1Html}</div>`:''}
+    </div>`;
+  } else {
+    // Original sparkline
+    const last14=[];
+    for(let i=13;i>=0;i--){const d=new Date(todayD);d.setDate(d.getDate()-i);const iso=date2iso(d);const e=ps.find(p=>p.date===iso);last14.push(e?e.peso:null);}
+    let lv=last14.find(v=>v!==null)||0;
+    const filled=last14.map(v=>{if(v!==null){lv=v;return v;}return lv;});
+    const minW=Math.min(...filled),maxW=Math.max(...filled),range=maxW-minW||0.5;
+    const W=160,H=38;
+    const spPts=filled.map((v,i)=>`${(i/(filled.length-1)*W).toFixed(1)},${(H-((v-minW)/range)*(H-4)-2).toFixed(1)}`).join(' ');
+    const lastX=W,lastY=H-((filled[filled.length-1]-minW)/range)*(H-4)-2;
+    const currWsp=ps[ps.length-1]?.peso||0;
+    visualPanelHtml=`<div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:8px 10px;flex:1">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="font-size:0.53rem;color:#334155;letter-spacing:.5px">PESO — 14 DIAS</span>
+        <span style="font-size:0.6rem;font-weight:700;color:${c.main}">${currWsp.toFixed(1)}kg</span>
+      </div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none">
+        <defs><linearGradient id="spGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${c.main}" stop-opacity=".18"/><stop offset="100%" stop-color="${c.main}" stop-opacity="0"/></linearGradient></defs>
+        <polygon points="0,${H} ${spPts} ${W},${H}" fill="url(#spGrad)"/>
+        <polyline points="${spPts}" fill="none" stroke="${c.main}" stroke-width="1.8" stroke-linejoin="round" opacity=".9"/>
+        <circle cx="${lastX}" cy="${lastY}" r="3.5" fill="${c.main}" opacity=".95"/>
+      </svg>
+      <div style="display:flex;justify-content:space-between;margin-top:2px">
+        <span style="font-size:0.52rem;color:#1e293b">${maxW.toFixed(1)}kg</span>
+        <span style="font-size:0.52rem;color:#1e293b">${minW.toFixed(1)}kg</span>
+      </div>
+    </div>`;
+  }
 
   // ── Progresso para meta ────────────────────
   const startW=cfg.startWeight||ps[0]?.peso||0;
@@ -2272,19 +2456,23 @@ function _buildAICardHTML(ins){
   return `<div class="idd-card ai-insight-hero" style="margin-bottom:20px;border-color:${c.border};background:linear-gradient(160deg,#06091a 0%,#080d1c 65%,${c.bg} 100%);position:relative;overflow:hidden">
     <div style="position:absolute;top:-80px;right:-40px;width:260px;height:260px;border-radius:50%;background:radial-gradient(circle,${c.glow} 0%,transparent 68%);pointer-events:none"></div>
 
-    <!-- Header -->
+    <!-- Header — Feature 2: category badge + Feature 4: alt perspective -->
     <div class="idd-header" style="border-bottom:1px solid ${c.border}">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <div class="idd-badge">✨ Insight do Dia</div>
-        <div style="background:${c.bg};border:1px solid ${c.border};color:${c.main};font-size:0.55rem;font-weight:800;padding:2px 8px;border-radius:20px;letter-spacing:2px">IA</div>
+        <div style="display:flex;align-items:center;gap:6px;padding:4px 12px 4px 8px;background:${c.bg};border:1px solid ${c.border};border-radius:20px">
+          <span style="font-size:1rem;line-height:1">${catIcon}</span>
+          <span style="font-size:0.56rem;font-weight:800;color:${c.main};letter-spacing:.5px;text-transform:uppercase">${catShort}</span>
+        </div>
         <div class="idd-date">${dateStr}</div>
       </div>
-      <button onclick="window._iddForceRegen()" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);color:#475569;padding:5px 10px;border-radius:7px;cursor:pointer;font-size:0.67rem;white-space:nowrap" onmouseover="this.style.color='${c.main}'" onmouseout="this.style.color='#475569'">🔄 Novo</button>
+      <div style="display:flex;gap:6px">
+        <button onclick="window._iddAltPerspective()" title="Gerar um ângulo diferente" style="background:rgba(167,139,250,.07);border:1px solid rgba(167,139,250,.2);color:#a78bfa;padding:5px 10px;border-radius:7px;cursor:pointer;font-size:0.65rem;white-space:nowrap" onmouseover="this.style.background='rgba(167,139,250,.14)'" onmouseout="this.style.background='rgba(167,139,250,.07)'">🎲 Outra perspectiva</button>
+        <button onclick="window._iddForceRegen()" style="background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);color:#475569;padding:5px 10px;border-radius:7px;cursor:pointer;font-size:0.67rem;white-space:nowrap" onmouseover="this.style.color='${c.main}'" onmouseout="this.style.color='#475569'">🔄 Novo</button>
+      </div>
     </div>
 
     <!-- Categoria + Título -->
     <div style="padding:14px 20px 2px;position:relative">
-      <div style="font-size:0.57rem;font-weight:800;letter-spacing:3px;color:${c.main};margin-bottom:6px">${ins.categoria}</div>
       <div style="font-size:1.06rem;font-weight:700;color:var(--text-primary);line-height:1.3">${ins.titulo}</div>
     </div>
 
@@ -2304,20 +2492,10 @@ function _buildAICardHTML(ins){
         </div>
       </div>
 
-      <!-- Coluna direita: sparkline + barra meta -->
+      <!-- Coluna direita: cycle chart / sparkline + barra meta -->
       <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">
-        <!-- Sparkline -->
-        <div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:8px 10px;flex:1">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-            <span style="font-size:0.53rem;color:#334155;letter-spacing:.5px">PESO — 14 DIAS</span>
-            <span style="font-size:0.6rem;font-weight:700;color:${c.main}">${currW.toFixed(1)}kg</span>
-          </div>
-          ${sparkSvg}
-          <div style="display:flex;justify-content:space-between;margin-top:2px">
-            <span style="font-size:0.52rem;color:#1e293b">${maxW.toFixed(1)}kg</span>
-            <span style="font-size:0.52rem;color:#1e293b">${minW.toFixed(1)}kg</span>
-          </div>
-        </div>
+        <!-- Feature 1: cycle chart or sparkline -->
+        ${visualPanelHtml}
         <!-- Progresso meta -->
         <div style="background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:8px 10px">
           <div style="display:flex;justify-content:space-between;margin-bottom:6px;align-items:center">
@@ -2368,6 +2546,20 @@ function _buildLoadingCardHTML(){
   </div>`;
 }
 window._iddForceRegen=function(){
+  localStorage.removeItem('pwbi_ai_insight');
+  const sb=document.getElementById('insights-sidebar');
+  if(sb){sb.innerHTML='';renderInsightOfDay();}
+};
+window._iddAltPerspective=function(){
+  // Block current category so AI picks a different one
+  const cached=_getAIInsightCache();
+  if(cached&&cached.content&&cached.content.categoria){
+    try{
+      const h=JSON.parse(localStorage.getItem('pwbi_insight_hist')||'[]');
+      if(!h.includes(cached.content.categoria)) h.push(cached.content.categoria);
+      localStorage.setItem('pwbi_insight_hist',JSON.stringify(h.slice(-10)));
+    }catch(e){}
+  }
   localStorage.removeItem('pwbi_ai_insight');
   const sb=document.getElementById('insights-sidebar');
   if(sb){sb.innerHTML='';renderInsightOfDay();}
@@ -2676,16 +2868,25 @@ function renderInsightOfDay(){
   };
 
   // ── Compose sidebar ───────────────────────────
+  const countdownHtml = _buildCountdownHTML();
+  const compareHtml   = _buildCycleCompareHTML();
   const algoSection=pool.length?`<div id="iddAlgoWrap" class="idd-card" style="margin-bottom:20px;background:#060a16;border-color:rgba(255,255,255,.06)"><div id="iddAlgoInner"></div></div>`:'';
   const apiKey=DB.config.apiKey;
   const cached=_getAIInsightCache();
 
+  function _startTimer(){
+    if(window._iddTimerInterval) clearInterval(window._iddTimerInterval);
+    window._iddTimerInterval=setInterval(_tickCountdown,30000);
+  }
+
   if(cached){
-    sb.innerHTML=_buildAICardHTML(cached)+algoSection;
+    sb.innerHTML=countdownHtml+_buildAICardHTML(cached)+compareHtml+algoSection;
     _iddRender(window._iddIdx);
+    _startTimer();
   } else if(apiKey){
-    sb.innerHTML=_buildLoadingCardHTML()+algoSection;
+    sb.innerHTML=countdownHtml+_buildLoadingCardHTML()+compareHtml+algoSection;
     _iddRender(window._iddIdx);
+    _startTimer();
     _fetchAIInsight(false).then(ins=>{
       const loadEl=document.getElementById('aiLoadingCard');
       if(loadEl){
@@ -2697,8 +2898,9 @@ function renderInsightOfDay(){
     const noteHtml=`<div style="margin-bottom:16px;padding:12px 16px;background:rgba(96,165,250,.04);border:1px solid rgba(96,165,250,.12);border-radius:10px;font-size:0.76rem;color:#475569">
       <strong style="color:#60a5fa">💡 Insight do Dia com IA</strong> — Configure sua chave Anthropic em <strong>Config → Assistente IA</strong> para receber insights gerados por inteligência artificial todos os dias.
     </div>`;
-    sb.innerHTML=noteHtml+algoSection;
+    sb.innerHTML=countdownHtml+noteHtml+compareHtml+algoSection;
     _iddRender(window._iddIdx);
+    _startTimer();
   }
 }
 
