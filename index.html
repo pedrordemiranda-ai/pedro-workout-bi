@@ -4119,6 +4119,12 @@ function chatClear() {
 function initChat() {
   if (chatInitialized) return;
   chatInitialized = true;
+  if (!document.getElementById('_chatAnimStyle')) {
+    const s = document.createElement('style');
+    s.id = '_chatAnimStyle';
+    s.textContent = '@keyframes _blink{0%,100%{opacity:1}50%{opacity:0}}';
+    document.head.appendChild(s);
+  }
   const apiKey = DB.config.apiKey;
   if (!apiKey) {
     chatAddMsg('assistant', '⚠️ Configure sua **Anthropic API Key** na aba Config para usar o Assistente.');
@@ -4229,29 +4235,90 @@ ${wa.slice(-14).map(w=>`${w.date}: ${w.copos} copos (${(w.copos*cfg.waterVol).to
 - Treinos/semana: ${cfg.weeklyWorkouts}`;
 }
 
+function _mdInline(t) {
+  return t
+    .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g,'<em>$1</em>')
+    .replace(/`([^`\n]+)`/g,'<code style="background:rgba(0,0,0,.3);padding:2px 5px;border-radius:3px;font-family:monospace;font-size:.85em">$1</code>');
+}
+function _md(text) {
+  if (typeof text !== 'string' || !text) return '';
+  let t = text;
+  // Fenced code blocks (process first so inner content isn't mangled)
+  t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, (_,lang,code) => {
+    const esc = code.trim().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const label = lang ? `<div style="font-size:.7rem;opacity:.5;margin-bottom:4px;font-family:monospace;text-transform:uppercase">${lang}</div>` : '';
+    return `<div style="background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px 12px;margin:8px 0;overflow-x:auto">${label}<pre style="margin:0;font-size:.8rem;line-height:1.55;font-family:monospace;white-space:pre">${esc}</pre></div>`;
+  });
+  // Tables
+  t = t.replace(/^(\|.+\|[ \t]*\n)(\|[ \t]*[-:| \t]+\|[ \t]*\n)((?:\|.+\|[ \t]*\n?)+)/gm, (_,hdr,sep,body) => {
+    const pr = row => row.trim().replace(/^\||\|$/g,'').split('|').map(c=>c.trim());
+    const alignOf = (s,i) => { const c=(s.trim().replace(/^\||\|$/g,'').split('|')[i]||'').trim(); return c.startsWith(':')&&c.endsWith(':')?' style="text-align:center"':c.endsWith(':')?' style="text-align:right"':''; };
+    const sepCols = sep.trim().replace(/^\||\|$/g,'').split('|');
+    const ths = pr(hdr).map((h,i)=>`<th${alignOf(sep,i)} style="padding:7px 12px;border-bottom:2px solid rgba(255,255,255,.18);font-weight:600;white-space:nowrap">${_mdInline(h)}</th>`).join('');
+    const trs = body.trim().split('\n').filter(Boolean).map(r=>`<tr style="border-bottom:1px solid rgba(255,255,255,.06)">${pr(r).map((c,i)=>`<td${alignOf(sep,i)} style="padding:6px 12px">${_mdInline(c)}</td>`).join('')}</tr>`).join('');
+    return `<div style="overflow-x:auto;margin:10px 0;border-radius:8px;border:1px solid rgba(255,255,255,.1)"><table style="border-collapse:collapse;width:100%;font-size:.82rem">${ths?`<thead><tr>${ths}</tr></thead>`:''}<tbody>${trs}</tbody></table></div>`;
+  });
+  // Headers
+  t = t.replace(/^### (.+)$/gm,'<div style="font-weight:700;margin:10px 0 3px;font-size:.9rem;opacity:.9">$1</div>');
+  t = t.replace(/^## (.+)$/gm,'<div style="font-weight:700;margin:14px 0 5px;font-size:1rem;border-bottom:1px solid rgba(255,255,255,.12);padding-bottom:4px">$1</div>');
+  t = t.replace(/^# (.+)$/gm,'<div style="font-weight:800;margin:14px 0 6px;font-size:1.1rem">$1</div>');
+  // HR
+  t = t.replace(/^---+$/gm,'<hr style="border:none;border-top:1px solid rgba(255,255,255,.12);margin:10px 0">');
+  // Unordered lists
+  t = t.replace(/((?:^[ \t]*[*\-] .+\n?)+)/gm, block => {
+    const items = block.trim().split('\n').map(l=>`<li style="margin:3px 0">${_mdInline(l.replace(/^[ \t]*[*\-] /,''))}</li>`).join('');
+    return `<ul style="margin:6px 0;padding-left:20px;list-style:disc">${items}</ul>`;
+  });
+  // Ordered lists
+  t = t.replace(/((?:^[ \t]*\d+\. .+\n?)+)/gm, block => {
+    const items = block.trim().split('\n').map(l=>`<li style="margin:3px 0">${_mdInline(l.replace(/^[ \t]*\d+\. /,''))}</li>`).join('');
+    return `<ol style="margin:6px 0;padding-left:20px">${items}</ol>`;
+  });
+  // Inline formatting on remaining text, then newlines
+  t = _mdInline(t);
+  t = t.replace(/\n\n+/g,'<br><br>').replace(/\n/g,'<br>');
+  return t;
+}
+
 function chatAddMsg(role, text) {
   chatHistory.push({ role, content: text });
   renderChatMessages();
+  if (role === 'user') {
+    const el = document.getElementById('chatMessages');
+    if (el) el.scrollTop = el.scrollHeight;
+  }
 }
 
 function renderChatMessages() {
   const el = document.getElementById('chatMessages');
   if (!el) return;
-  el.innerHTML = chatHistory.map(m => {
+  el.innerHTML = chatHistory.map((m,i) => {
     const isUser = m.role === 'user';
-    const html = (typeof m.content === 'string' ? m.content : '')
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      .replace(/\n/g, '<br>');
-    return `<div style="display:flex;justify-content:${isUser?'flex-end':'flex-start'}">
-      <div style="max-width:80%;padding:10px 14px;border-radius:${isUser?'16px 16px 4px 16px':'16px 16px 16px 4px'};
+    return `<div class="chat-msg" data-idx="${i}" style="display:flex;justify-content:${isUser?'flex-end':'flex-start'};margin-bottom:10px">
+      <div class="chat-content" style="max-width:85%;padding:10px 14px;border-radius:${isUser?'16px 16px 4px 16px':'16px 16px 16px 4px'};
         background:${isUser?'var(--accent-blue)':'var(--bg-secondary)'};
-        color:var(--text-primary);font-size:0.84rem;line-height:1.6">
-        ${html}
+        color:var(--text-primary);font-size:0.84rem;line-height:1.6;word-break:break-word;min-height:1.2em">
+        ${_md(typeof m.content === 'string' ? m.content : '')}
       </div>
     </div>`;
   }).join('');
-  el.scrollTop = el.scrollHeight;
+}
+
+function _updateLastChatMsg(text, streaming) {
+  const el = document.getElementById('chatMessages');
+  if (!el) return;
+  const last = el.querySelector('.chat-msg:last-child .chat-content');
+  if (!last) return;
+  const cursor = streaming ? '<span style="display:inline-block;width:2px;height:1.1em;background:currentColor;vertical-align:middle;margin-left:2px;opacity:.7;animation:_blink .65s step-end infinite">&#8203;</span>' : '';
+  last.innerHTML = _md(text) + cursor;
+}
+
+function _scrollToLastMsg() {
+  const el = document.getElementById('chatMessages');
+  if (!el) return;
+  const last = el.querySelector('.chat-msg:last-child');
+  if (last) last.scrollIntoView({ block:'start', behavior:'smooth' });
 }
 
 // ── Attachment state ──────────────────────────────────────────────────────
@@ -4319,11 +4386,12 @@ async function chatSend() {
   btn.disabled = true;
   btn.textContent = '...';
 
-  chatHistory.push({ role: 'assistant', content: '⏳ _Analisando seus dados..._' });
+  // Add empty assistant placeholder — will be filled via streaming
+  chatHistory.push({ role: 'assistant', content: '' });
   renderChatMessages();
+  _scrollToLastMsg();
 
   try {
-    // Build message content — may be array if attachment present
     let userContent;
     if (attach) {
       const contentBlocks = [];
@@ -4332,7 +4400,6 @@ async function chatSend() {
       } else if (attach.type === 'pdf') {
         contentBlocks.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:attach.data } });
       } else {
-        // text file — inline as text block
         contentBlocks.push({ type:'text', text:`Conteúdo do arquivo "${attach.name}":\n\n${attach.data.slice(0,12000)}` });
       }
       if (text) contentBlocks.push({ type:'text', text });
@@ -4341,15 +4408,14 @@ async function chatSend() {
       userContent = text;
     }
 
-    // Build history — only plain string messages (skip turn with attachment for history simplicity)
     const messages = chatHistory
-      .filter(m => m.content !== '⏳ _Analisando seus dados..._')
-      .filter(m => !(m.role==='assistant' && typeof m.content==='string' && m.content.startsWith('⚠️')))
-      .filter(m => !(m.role==='assistant' && typeof m.content==='string' && m.content.startsWith('👋')))
+      .slice(0, -1) // exclude empty assistant placeholder
+      .filter(m => typeof m.content === 'string')
+      .filter(m => !(m.role==='assistant' && m.content.startsWith('⚠️')))
+      .filter(m => !(m.role==='assistant' && m.content.startsWith('👋')))
       .map((m, idx, arr) => {
-        // Last user message = the one we just built (with attachment)
         if (idx === arr.length - 1 && m.role === 'user') return { role:'user', content: userContent };
-        return { role: m.role, content: typeof m.content === 'string' ? m.content : String(m.content) };
+        return { role: m.role, content: m.content };
       });
 
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -4364,24 +4430,53 @@ async function chatSend() {
       body: JSON.stringify({
         model: 'claude-sonnet-5',
         max_tokens: 2048,
+        stream: true,
         system: buildSystemPrompt(),
         messages
       })
     });
 
-    const data = await resp.json();
-    chatHistory.pop();
-
-    if (data.content && data.content[0]) {
-      const replyText = data.content.find(b=>b.type==='text')?.text;
-      chatAddMsg('assistant', replyText || '❌ Resposta sem texto da API. Tente reformular a pergunta.');
-    } else if (data.error) {
-      chatAddMsg('assistant', `❌ Erro: ${data.error.message}`);
+    if (!resp.ok) {
+      const errData = await resp.json().catch(()=>({error:{message:resp.statusText}}));
+      chatHistory.pop();
+      chatAddMsg('assistant', `❌ Erro ${resp.status}: ${errData.error?.message || resp.statusText}`);
+      btn.disabled = false; btn.textContent = 'Enviar'; return;
     }
+
+    // Stream the response
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let accumulated = '';
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if (!raw || raw === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(raw);
+          if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
+            accumulated += parsed.delta.text;
+            chatHistory[chatHistory.length - 1].content = accumulated;
+            _updateLastChatMsg(accumulated, true);
+          }
+        } catch {}
+      }
+    }
+
+    const final = accumulated || '❌ Resposta vazia.';
+    chatHistory[chatHistory.length - 1].content = final;
+    _updateLastChatMsg(final, false);
+
   } catch(e) {
     chatHistory.pop();
-    const stackLine = (e.stack||'').split('\n').slice(1,3).join(' | ');
-    chatAddMsg('assistant', `❌ Erro: ${e.message}\n\n_Stack: ${stackLine}_`);
+    chatAddMsg('assistant', `❌ Erro de conexão: ${e.message}`);
   }
 
   btn.disabled = false;
