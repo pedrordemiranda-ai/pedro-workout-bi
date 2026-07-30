@@ -860,7 +860,7 @@
       <button onclick="chatClearAttach()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:1rem;padding:0">✕</button>
     </div>
     <div style="display:flex;gap:8px;align-items:flex-end">
-      <label title="Anexar arquivo (PDF, imagem, txt)" style="cursor:pointer;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;color:#64748b;font-size:1.1rem;height:fit-content;transition:all .2s" onmouseover="this.style.color='#60a5fa'" onmouseout="this.style.color='#64748b'">
+      <label title="Anexar arquivo (PDF, imagem, txt)" style="cursor:pointer;padding:0 14px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;color:#64748b;font-size:1.2rem;align-self:stretch;display:flex;align-items:center;transition:all .2s;min-width:44px;justify-content:center" onmouseover="this.style.color='#60a5fa';this.style.borderColor='rgba(96,165,250,.5)'" onmouseout="this.style.color='#64748b';this.style.borderColor='var(--border)'">
         📎<input type="file" id="chatFileInput" accept=".pdf,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp" onchange="chatAttachFile(event)" style="display:none">
       </label>
       <textarea id="chatInput" placeholder="Ex: Analise meu exame de sangue anexo, ou: Estou no ritmo certo para minha meta?" rows="2"
@@ -3107,6 +3107,23 @@ function renderDashboard(){
     </div>`;
   }).join('');
 
+  // ── Cycle palette ─────────────────────────────────────────────────────
+  const allCyclesDash = getCycles();
+  const CYCLE_COLORS = [
+    {line:'#ff6b35', fill:'rgba(255,107,53,.13)', fillSolid:'rgba(255,107,53,.7)'},  // C1 orange
+    {line:'#60a5fa', fill:'rgba(96,165,250,.13)',  fillSolid:'rgba(96,165,250,.7)'},  // C2 blue
+    {line:'#a78bfa', fill:'rgba(167,139,250,.13)', fillSolid:'rgba(167,139,250,.7)'}, // C3 purple
+    {line:'#00ff88', fill:'rgba(0,255,136,.13)',   fillSolid:'rgba(0,255,136,.7)'},   // C4 green
+  ];
+  function cycleIdxForDate(iso){
+    let idx=0;
+    for(let i=0;i<allCyclesDash.length;i++){
+      const next=allCyclesDash[i+1];
+      if(!next||iso<next.startDate) return i;
+    }
+    return allCyclesDash.length-1;
+  }
+
   // Weight chart
   dc('wc');
   if(weights.length>1){
@@ -3114,35 +3131,72 @@ function renderDashboard(){
     const wdata=weights.map(w=>w.peso);
     const trend=trendLine(wdata);
     document.getElementById('weightBadge').textContent=wkLoss>0?`▼ ${wkLoss}kg/semana`:'Em acompanhamento';
+
+    // Per-cycle fill datasets (null outside each cycle's range)
+    const cycleDatasets = allCyclesDash.map((cycle, ci)=>{
+      const endDate = getCycleEndDate(cycle, allCyclesDash) || '9999-12-31';
+      const cc = CYCLE_COLORS[ci%CYCLE_COLORS.length];
+      return {
+        label: cycle.label,
+        data: weights.map(w => w.date >= cycle.startDate && w.date < endDate ? w.peso : null),
+        borderColor: cc.line,
+        backgroundColor: cc.fill,
+        tension:.3, pointRadius:1.5, fill:true, spanGaps:false,
+        borderWidth: allCyclesDash.length>1 ? 1.5 : 0,
+      };
+    });
+
     _charts.wc=new Chart(document.getElementById('weightChart'),{
       type:'line', data:{labels:wlabels, datasets:[
-        {label:'Peso',data:wdata,borderColor:'#ff6b35',backgroundColor:'rgba(255,107,53,.07)',tension:.3,pointRadius:2.5,fill:true},
-        {label:'Tendência',data:trend,borderColor:'rgba(255,107,53,.35)',borderDash:[5,5],pointRadius:0,tension:0},
-        {label:`Meta ${goalW}kg`,data:Array(wdata.length).fill(goalW),borderColor:'rgba(0,255,136,.5)',borderDash:[4,4],pointRadius:0}
+        ...cycleDatasets,
+        {label:'Tendência',data:trend,borderColor:'rgba(255,255,255,.15)',borderDash:[5,5],pointRadius:0,tension:0,borderWidth:1},
+        {label:`Meta ${goalW}kg`,data:Array(wdata.length).fill(goalW),borderColor:'rgba(0,255,136,.5)',borderDash:[4,4],pointRadius:0,borderWidth:1.5}
       ]},
-      options:{...CHART_OPT,plugins:{...CHART_OPT.plugins,legend:{display:true,labels:{color:'#475569',font:{size:10},padding:8}}},scales:{...CHART_OPT.scales,y:{...CHART_OPT.scales.y,suggestedMin:goalW-2}}}
+      options:{...CHART_OPT,plugins:{...CHART_OPT.plugins,legend:{display:true,labels:{color:'#475569',font:{size:10},padding:8,filter:i=>i.text!=='Tendência'}}},scales:{...CHART_OPT.scales,y:{...CHART_OPT.scales.y,suggestedMin:goalW-2}}}
     });
   }
 
-  // Goal ring
+  // Goal ring — multi-cycle segments
   dc('gr');
-  const wpct=startW>goalW?Math.min(100,Math.round((totalLost/(startW-goalW))*100)):0;
-  document.getElementById('goalRingLabel').innerHTML=`<strong style="font-size:1.1rem;color:var(--accent-green)">${wpct}%</strong><br>da meta<br><small>${totalLost.toFixed(1)}kg / ${(startW-goalW).toFixed(1)}kg</small>`;
+  const metaTotal = startW > goalW ? startW - goalW : 1;
+  const cycleRingData = []; const cycleRingColors = [];
+  allCyclesDash.forEach((cycle, ci)=>{
+    const d = getCycleData(cycle, allCyclesDash);
+    const loss = Math.max(0, d.perdaTotal);
+    const pct = Math.min(100, (loss / metaTotal)*100);
+    if(pct > 0){
+      cycleRingData.push(pct);
+      cycleRingColors.push(CYCLE_COLORS[ci%CYCLE_COLORS.length].line);
+    }
+  });
+  const ringUsed = cycleRingData.reduce((s,v)=>s+v, 0);
+  cycleRingData.push(Math.max(0, 100 - ringUsed));
+  cycleRingColors.push('rgba(30,41,59,.6)');
+  const wpct = Math.round(ringUsed);
+  const cycleRingTooltips = allCyclesDash.map((c,ci)=>{
+    const d=getCycleData(c,allCyclesDash);
+    return `${c.label}: -${Math.max(0,d.perdaTotal).toFixed(1)}kg`;
+  });
+  document.getElementById('goalRingLabel').innerHTML=`<strong style="font-size:1.1rem;color:var(--accent-green)">${wpct}%</strong><br>da meta<br><small>${totalLost.toFixed(1)}kg / ${metaTotal.toFixed(1)}kg</small>`;
   _charts.gr=new Chart(document.getElementById('goalRing'),{
     type:'doughnut',
-    data:{datasets:[{data:[wpct,100-wpct],backgroundColor:['#00ff88','rgba(30,41,59,.6)'],borderWidth:0}]},
-    options:{responsive:false,cutout:'75%',plugins:{legend:{display:false},tooltip:{enabled:false}}}
+    data:{labels:[...cycleRingTooltips,'Restante'],datasets:[{data:cycleRingData,backgroundColor:cycleRingColors,borderWidth:allCyclesDash.length>1?2:0,borderColor:'#080d1a'}]},
+    options:{responsive:false,cutout:'75%',plugins:{legend:{display:false},tooltip:{enabled:allCyclesDash.length>1,callbacks:{label:ctx=>ctx.label}}}}
   });
 
-  // Minutes per week
+  // Minutes per week — colored by cycle
   dc('mc');
   const gps=weekGroups(); const gkeys=Object.keys(gps).sort().slice(-8);
   if(gkeys.length>0){
+    const minColors = gkeys.map(k=>{
+      const ci = cycleIdxForDate(k);
+      return CYCLE_COLORS[ci%CYCLE_COLORS.length].fillSolid;
+    });
     _charts.mc=new Chart(document.getElementById('minutesChart'),{
       type:'bar', data:{
         labels:gkeys.map(k=>fmtDate(k).slice(0,5)),
         datasets:[
-          {label:'Minutos',data:gkeys.map(k=>gps[k].reduce((s,e)=>s+e.tempo,0)),backgroundColor:'rgba(59,130,246,.7)',borderRadius:4,borderSkipped:false},
+          {label:'Minutos',data:gkeys.map(k=>gps[k].reduce((s,e)=>s+e.tempo,0)),backgroundColor:minColors,borderRadius:4,borderSkipped:false},
           {label:'Meta',data:Array(gkeys.length).fill(cfg.weeklyWorkouts*cfg.minutesGoal),type:'line',borderColor:'rgba(0,255,136,.7)',borderDash:[5,3],pointRadius:0,borderWidth:1.5}
         ]
       }, options:{...CHART_OPT}
