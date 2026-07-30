@@ -855,13 +855,20 @@
     </div>
     <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:16px">Faça perguntas sobre seus dados de treino, peso e evolução. O assistente tem acesso a todos os seus registros.</div>
     <div id="chatMessages" style="min-height:300px;max-height:480px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;margin-bottom:16px;padding:4px 0"></div>
+    <div id="chatAttachPreview" style="display:none;background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.25);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:0.78rem;color:#60a5fa;align-items:center;gap:8px">
+      <span id="chatAttachName" style="flex:1"></span>
+      <button onclick="chatClearAttach()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:1rem;padding:0">✕</button>
+    </div>
     <div style="display:flex;gap:8px;align-items:flex-end">
-      <textarea id="chatInput" placeholder="Ex: Estou no ritmo certo para atingir minha meta? Qual foi minha melhor semana?" rows="2"
+      <label title="Anexar arquivo (PDF, imagem, txt)" style="cursor:pointer;padding:10px 12px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;color:#64748b;font-size:1.1rem;height:fit-content;transition:all .2s" onmouseover="this.style.color='#60a5fa'" onmouseout="this.style.color='#64748b'">
+        📎<input type="file" id="chatFileInput" accept=".pdf,.txt,.csv,.jpg,.jpeg,.png,.gif,.webp" onchange="chatAttachFile(event)" style="display:none">
+      </label>
+      <textarea id="chatInput" placeholder="Ex: Analise meu exame de sangue anexo, ou: Estou no ritmo certo para minha meta?" rows="2"
         style="flex:1;background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text-primary);font-size:0.85rem;resize:none;font-family:inherit"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();chatSend();}"></textarea>
       <button class="btn btn-primary" onclick="chatSend()" id="chatSendBtn" style="padding:10px 20px;height:fit-content">Enviar</button>
     </div>
-    <div style="margin-top:8px;font-size:0.72rem;color:#475569">Enter para enviar · Shift+Enter para nova linha · Powered by Claude Haiku</div>
+    <div style="margin-top:8px;font-size:0.72rem;color:#475569">Enter para enviar · Shift+Enter para nova linha · 📎 Suporta PDF, imagem, TXT · Powered by Claude Haiku</div>
   </div>
 </div>
 
@@ -1194,13 +1201,57 @@ const MX = {
   ]
 };
 
-function getLevelFromHistory(){
-  // Detecta o nível real pelo último treino registrado (ex: "3A" → Nível III)
-  const ws=DB.workouts.slice().sort((a,b)=>b.date.localeCompare(a.date));
+function getLevelFromHistory(workoutList){
+  const ws=(workoutList||DB.workouts).slice().sort((a,b)=>b.date.localeCompare(a.date));
   for(const w of ws){
     if(w.workout&&/^[1-4][ABC]$/.test(w.workout)) return parseInt(w.workout[0]);
   }
   return null;
+}
+
+function getProgramStatusForCycle(cycle){
+  const cycles=getCycles();
+  const endDate=getCycleEndDate(cycle,cycles);
+  const today=todayISO();
+  const cycleEnd=endDate||today;
+  const cycleWs=DB.workouts.filter(w=>w.date>=cycle.startDate&&w.date<=cycleEnd)
+    .sort((a,b)=>a.date.localeCompare(b.date));
+  const daysIn=Math.max(1,diffDays(cycle.startDate,today));
+  const weekNum=Math.min(12,Math.ceil(daysIn/7));
+  const calLevelIdx=Math.min(3,Math.floor((weekNum-1)/3));
+  const histLevel=getLevelFromHistory(cycleWs);
+  const levelIdx=histLevel?Math.min(3,Math.max(calLevelIdx,histLevel-1)):calLevelIdx;
+  const level=MX.levels[levelIdx];
+  const TOTAL_PER_LEVEL=9;
+  const completedInLevel=cycleWs.filter(w=>w.workout&&w.workout[0]===String(level.n)).length;
+  const remainingInLevel=Math.max(0,TOTAL_PER_LEVEL-completedInLevel);
+  const weekInLevel=Math.min(3,Math.max(1,Math.ceil(completedInLevel/3)||((weekNum-1)%3)+1));
+  const avgDPW=daysIn/Math.max(1,cycleWs.filter(w=>/^[1-4][ABC]$/.test(w.workout||'')).length);
+  const daysLeftInLevel=Math.max(0,Math.round(remainingInLevel*avgDPW));
+  const pctLevel=Math.min(100,Math.round((completedInLevel/TOTAL_PER_LEVEL)*100));
+  return{daysIn,weekNum,level,weekInLevel,daysLeftInLevel,pctLevel,levelIdx,cycleWs};
+}
+
+function getNextWorkoutForCycle(cycleStatus){
+  if(!cycleStatus) return null;
+  const ws=cycleStatus.cycleWs.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const last=ws[0];
+  if(last&&last.workout&&/^[1-4][ABC]$/.test(last.workout)){
+    const lastLevel=parseInt(last.workout[0]);
+    const lastSlot=last.workout[1];
+    const slotOrder=['A','B','C'];
+    const nextSlotIdx=(slotOrder.indexOf(lastSlot)+1)%3;
+    const nextLevel=nextSlotIdx===0?Math.min(4,lastLevel+1):lastLevel;
+    const nextCode=`${nextLevel}${slotOrder[nextSlotIdx]}`;
+    const info=MX.workouts[nextCode]||{};
+    const todayDow=new Date().getDay();
+    const trainDows=[1,3,5];
+    let daysUntil=0;
+    for(let d=1;d<=7;d++){if(trainDows.includes((todayDow+d)%7)){daysUntil=d;break;}}
+    return{workoutCode:nextCode,...info,daysUntil};
+  }
+  const level=cycleStatus.level;
+  return{workoutCode:`${level.n}A`,...(MX.workouts[`${level.n}A`]||{}),daysUntil:1};
 }
 
 function getProgramStatus(){
@@ -2083,14 +2134,35 @@ CONTEXTO DO MOMENTO:
 - Últimas categorias geradas (EVITE repetir): ${ultimasCateg||'nenhuma'}
 
 REGRAS:
-- Um único ângulo genuinamente revelador — nunca um resumo genérico
-- Cite números reais dos dados com precisão; use histórico completo para comparações
-- Foque principalmente em tendências de PESO, evolução no PROGRAMA, TREINOS e padrões históricos
+- Um único ângulo genuinamente revelador — nunca um resumo genérico do progresso geral
+- Cite números reais dos dados com precisão; use histórico COMPLETO para comparações entre ciclos
 - SOBRE ÁGUA: só mencione hidratação se for o ângulo mais relevante do dia E se for após as 17h (hora atual: ${horaAtual}h). Antes das 17h o dia ainda não encerrou — não gere alertas de "falta de água hoje"
-- Variedade obrigatória: escolha uma categoria diferente das últimas usadas. Explore ângulos como: evolução no nível atual, comparativo de treinos A/B/C, velocidade de perda vs meta, padrão dia da semana, recorde pessoal, projeção de chegada à meta, consistência semanal, correlações históricas, conquistas
-- Quando fizer recomendação quantitativa, cite a fonte entre parênteses: "(Institute of Medicine)", "(Lean Body Diet — Shin Ohtake)", "(MAX Workouts)"
+- Quando fizer recomendação quantitativa, cite a fonte: "(Institute of Medicine)", "(Lean Body Diet — Shin Ohtake)", "(MAX Workouts)"
 - Máx 3 frases no campo "insight". Use <strong> nos números-chave.
 - Tom: analítico e motivador — não alarmista
+
+VARIEDADE OBRIGATÓRIA — escolha UMA categoria diferente das últimas usadas (${ultimasCateg||'nenhuma'}):
+
+GRUPO A — DESEMPENHO E EVOLUÇÃO:
+  1. 🏆 RECORDE PESSOAL — melhor semana, maior perda num período, série mais longa de treinos
+  2. 📈 TENDÊNCIA RECENTE — como os últimos 7-14 dias se comparam com os 14 anteriores (aceleração ou platô?)
+  3. ⚡ EFICIÊNCIA POR TREINO — qual workout (A/B/C) gerou mais perda no dia seguinte, neste ciclo
+  4. 🔄 COMPARATIVO ENTRE CICLOS — Ciclo 1 vs Ciclo 2: mesma semana, mesmo nível, quem saiu melhor?
+  5. 📅 PADRÃO DIA DA SEMANA — o dia mais (ou menos) produtivo historicamente, com número exato
+  6. 🎯 PROJEÇÃO DE META — quando chegará em ${cfg.goalWeight}kg na taxa atual, e qual cenário otimista vs conservador
+
+GRUPO B — CIÊNCIA E CURIOSIDADES:
+  7. 🧬 FISIOLOGIA DO EXERCÍCIO — algo do MAX Workouts (HIIT, EPOC, GH, Tabata, work capacity) aplicado aos dados do Pedro
+  8. 🍽️ NUTRIÇÃO E COMPOSIÇÃO — princípio do Lean Body Diet nos dados (proteína, carboidratos ECC, deficit calórico, refeições pré/pós treino)
+  9. 💡 CORRELAÇÃO INESPERADA — uma relação não-óbvia nos dados (ex: treinos de tarde vs manhã, dia seguinte a cardio vs força)
+  10. 🕐 RITMO CIRCADIANO — padrão de variação de peso por horário de pesagem, ou efeito do descanso semanal
+  11. 🏋️ PROGRESSÃO DE CARGA — no Ciclo 2 Pedro aumentou pesos; como isso se compara ao ritmo de perda do Ciclo 1
+
+GRUPO C — MARCO E MOTIVAÇÃO:
+  12. 🌟 MARCO DO PROGRAMA — porcentagem da meta global, dias totais, número de treinos acumulados
+  13. ⏰ TEMPO PARA PRÓXIMO NÍVEL — quantos treinos faltam para avançar ao próximo nível neste ciclo
+  14. 💪 CONSISTÊNCIA — sequência ativa, semanas completas, presença vs ausência
+  15. 🔮 PREVISÃO ESPECIAL — se mantiver ritmo do Ciclo 2, quando terminará o programa completo (peso meta)?
 - ESCOLHA DA COR conforme o teor do insight:
   • "green"  → conquista, perda de peso ACIMA da meta semanal, meta batida, recorde pessoal, semana excelente, evolução de nível
   • "cyan"   → progresso estável, curiosidade, padrão neutro interessante
@@ -3452,33 +3524,55 @@ function renderInsights(){
   const daysIn = weights.length>=2 ? diffDays(weights[0].date, weights[weights.length-1].date) : 0;
   const avgPerWeek = daysIn>0 ? parseFloat((totalLostKg/(daysIn/7)).toFixed(2)) : 0;
 
-  // ── Contexto do programa MAX Workouts ────────
-  const ps = getProgramStatus();
-  const nx = getNextWorkout();
+  // ── Contexto do programa MAX Workouts — ciclo atual ────────
+  const currentCycleIns = getCurrentCycle();
+  const allCyclesIns = getCycles();
+  const ps = getProgramStatusForCycle(currentCycleIns);
+  const nx = getNextWorkoutForCycle(ps);
   const levelColors2 = ['','#3b82f6','#8b5cf6','#f59e0b','#ef4444'];
-  // Perda média por nível (baseado na semana do programa)
+
+  // Perda média por nível NO CICLO ATUAL (usa data de início do ciclo)
+  const cycleStartDate = currentCycleIns.startDate;
+  const cycleWeights = weights.filter(w=>w.date>=cycleStartDate);
+  const cycleWorkoutsIns = workouts.filter(w=>w.date>=cycleStartDate);
   const lossByLevel = {};
-  rows.forEach(r=>{
-    const dayN = diffDays(weights[0]?.date||r.date, r.date)+1;
-    const li = Math.min(3, Math.floor((Math.ceil(dayN/7)-1)/3)); // 0-3
-    const lLabel = MX.levels[li]?.label||'?';
-    if(!lossByLevel[lLabel]) lossByLevel[lLabel]={deltas:[], workouts:[]};
+  // Para cada pesagem do ciclo, atribui ao nível pelo dia dentro do ciclo
+  const rowsCycle = [];
+  const cwByDate={};
+  cycleWeights.forEach(w=>cwByDate[w.date]=w.peso);
+  const cwkByDate={};
+  cycleWorkoutsIns.forEach(w=>cwkByDate[w.date]=w);
+  const cycleAllDates=cycleWeights.map(w=>w.date);
+  cycleAllDates.forEach((d,i)=>{
+    if(i===0) return;
+    const prev=cycleAllDates[i-1];
+    const delta=parseFloat((cwByDate[d]-cwByDate[prev]).toFixed(2));
+    const wk=cwkByDate[d]||null;
+    rowsCycle.push({date:d,delta,workout:wk?.workout||''});
+  });
+  rowsCycle.forEach(r=>{
+    const dayN=diffDays(cycleStartDate,r.date)+1;
+    const li=Math.min(3,Math.floor((Math.ceil(dayN/7)-1)/3));
+    const lLabel=MX.levels[li]?.label||'?';
+    if(!lossByLevel[lLabel]) lossByLevel[lLabel]={deltas:[],workouts:[]};
     lossByLevel[lLabel].deltas.push(r.delta);
     if(r.workout) lossByLevel[lLabel].workouts.push(r.workout);
   });
   const levelRows = Object.entries(lossByLevel).map(([l,v])=>({
-    label:l,
-    avgDelta: parseFloat(mean(v.deltas).toFixed(3)),
-    count: v.deltas.length,
-    workoutTypes: [...new Set(v.workouts)].join(', ')
+    label:l, avgDelta:parseFloat(mean(v.deltas).toFixed(3)),
+    count:v.deltas.length, workoutTypes:[...new Set(v.workouts)].join(', ')
   }));
+  const cycleLabel = currentCycleIns.label;
   const s6 = ps ? `
+    <div style="font-size:0.72rem;color:#60a5fa;font-weight:600;margin-bottom:10px;padding:6px 10px;background:rgba(96,165,250,.08);border-radius:6px;border-left:3px solid #60a5fa">
+      📍 Mostrando posição no <strong>${cycleLabel}</strong> (início: ${fmtDate(cycleStartDate)})
+    </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:14px">
-      ${kpiCard('Nível Atual', ps.level.label, `Semana ${ps.weekInLevel}/3 · Dia ${ps.daysIn}`, levelColors2[ps.level.n])}
-      ${kpiCard('Nível seguinte', ps.levelIdx<3?MX.levels[ps.levelIdx+1].label:'Concluído', `em ${ps.daysLeftInLevel} dias`, '#64748b')}
+      ${kpiCard('Nível Atual', ps.level.label, `Semana ${ps.weekInLevel}/3 · Dia ${ps.daysIn} do ciclo`, levelColors2[ps.level.n])}
+      ${kpiCard('Próximo nível', ps.levelIdx<3?MX.levels[ps.levelIdx+1].label:'Ciclo concluído', ps.daysLeftInLevel>0?`em ~${ps.daysLeftInLevel} dias`:'Pronto para avançar!', '#64748b')}
       ${nx?kpiCard('Próximo treino', nx.workoutCode, nx.daysUntil===0?'hoje':`em ${nx.daysUntil} dia(s)`, '#00ff88'):''}
     </div>
-    <table style="width:100%;border-collapse:collapse;font-size:0.78rem">
+    ${levelRows.length?`<table style="width:100%;border-collapse:collapse;font-size:0.78rem">
       <thead><tr style="color:#64748b;border-bottom:1px solid #1e293b">
         <th style="text-align:left;padding:6px 8px">Nível</th>
         <th style="text-align:center;padding:6px 8px">Dias</th>
@@ -3492,27 +3586,84 @@ function renderInsights(){
         <td style="padding:6px 8px;color:#64748b;font-size:0.7rem">${r.workoutTypes||'—'}</td>
       </tr>`).join('')}</tbody>
     </table>
-    <div style="margin-top:8px;font-size:0.7rem;color:#475569">Perda média por dia em cada nível do MAX Workouts — permite ver se a progressão de intensidade está correlacionada com maior perda.</div>` :
+    <div style="margin-top:8px;font-size:0.7rem;color:#475569">Perda média por dia em cada nível do ${cycleLabel} — correlação entre progressão de intensidade e perda.</div>`
+    :'<p style="color:#64748b;font-size:0.8rem">Registre treinos neste ciclo para ativar a análise por nível.</p>'}` :
     '<p style="color:#64748b;font-size:0.8rem">Configure a data de início do programa em Config para ativar esta análise.</p>';
 
-  const bullets = [];
-  bullets.push(`📉 Em <strong>${daysIn} dias</strong> de programa, você perdeu <strong style="color:#00ff88">${totalLostKg} kg</strong> — média de <strong>${avgPerWeek} kg/semana</strong>.`);
-  if(ps) bullets.push(`🏋️ Você está no <strong style="color:${levelColors2[ps.level.n]}">${ps.level.label}</strong>, semana ${ps.weekInLevel} de 3. ${ps.daysLeftInLevel<=5?`<strong>Faltam apenas ${ps.daysLeftInLevel} dias para avançar ao próximo nível!</strong>`:`Faltam ${ps.daysLeftInLevel} dias para o próximo nível.`}`);
+  // ── Bullets coluna GERAL (todos os ciclos) ──────────────────────────────
+  const bulletsGeral = [];
+  bulletsGeral.push(`📉 Em <strong>${daysIn} dias</strong> de programa, você perdeu <strong style="color:#00ff88">${totalLostKg} kg</strong> — média de <strong>${avgPerWeek} kg/semana</strong>.`);
+  bulletsGeral.push(`🔄 Programa dividido em <strong>${allCyclesIns.length} ciclo(s)</strong>. Meta final: <strong>${goal} kg</strong> (faltam <strong>${parseFloat((curPeso-goal).toFixed(1))} kg</strong>).`);
+  if(ratePerDay) bulletsGeral.push(`📈 Tendência geral: <strong style="color:#00ff88">${fmt2(ratePerDay)} kg/dia</strong>. ${daysToGoal?`Meta estimada em ~<strong>${daysToGoal} dias</strong> (<strong>${goalDate}</strong>).`:'Mantenha o ritmo para estimar a data.'}`);
+  if(corAWstr) bulletsGeral.push(`💧 Correlação água×peso: <strong>${corAWstr}</strong> (r = ${rAW}). ${rAW<-0.3?'Mais hidratação → mais perda no dia seguinte.':rAW>0.1?'Água isolada não explica a variação de peso.':'Efeito inconclusivo com os dados disponíveis.'}`);
+  if(corMWstr) bulletsGeral.push(`⏱️ Correlação exercício×peso: <strong>${corMWstr}</strong> (r = ${rMW}). ${rMW<-0.3?'Sessões mais longas associam-se a mais perda.':'Efeito acumulado semanal é mais relevante que duração isolada.'}`);
+  if(bestDow>=0) bulletsGeral.push(`📅 Melhor dia historicamente: <strong>${dowNames[bestDow]}</strong> (${fmt2(dowAvgDelta[bestDow])} kg/dia). ${worstDow>=0&&worstDow!==bestDow?`Pior: <strong>${dowNames[worstDow]}</strong> (${fmt2(dowAvgDelta[worstDow])} kg).`:''}`);
+  if(bestWt) bulletsGeral.push(`💪 Treino mais eficaz (geral): <strong>${bestWt}</strong> → ${fmt2(Math.min(...wtAvg))} kg no dia seguinte. ${MX.workouts[bestWt]?`<span style="color:#64748b;font-size:0.75em">${MX.workouts[bestWt].exercises}</span>`:''}`);
   if(levelRows.length>=2){
     const best=levelRows.reduce((b,r)=>r.avgDelta<b.avgDelta?r:b);
-    bullets.push(`📊 O <strong>${best.label}</strong> foi o nível com maior perda média diária (${fmt2(best.avgDelta)} kg/dia) — ${best.label==='Nível I'?'o início do programa gerou o maior impacto metabólico.':'a progressão de intensidade está gerando resultado.'}`);
+    bulletsGeral.push(`📊 Nível mais eficaz: <strong>${best.label}</strong> (${fmt2(best.avgDelta)} kg/dia médio).`);
   }
-  if(ratePerDay) bullets.push(`📈 A tendência de regressão linear aponta <strong style="color:#00ff88">${fmt2(ratePerDay)} kg/dia</strong>. ${daysToGoal?`Na taxa atual, a meta de <strong>${goal} kg</strong> será atingida em ~<strong>${daysToGoal} dias</strong> (<strong>${goalDate}</strong>).`:'Mantenha o ritmo para estimar a data da meta.'}`);
-  if(corAWstr) bullets.push(`💧 A correlação entre consumo de água (dia anterior) e variação de peso (dia seguinte) é <strong>${corAWstr}</strong> (r = ${rAW}). ${rAW<-0.3?'Dias com mais hidratação tendem a ser seguidos de maior perda no dia posterior.':rAW>0.1?'Maior ingestão de água não está associada a maior perda no dia seguinte, nestes dados.':'O efeito da água no peso do dia seguinte ainda não é conclusivo com os dados disponíveis.'}`);
-  if(corMWstr) bullets.push(`⏱️ A correlação entre minutos de exercício e variação de peso é <strong>${corMWstr}</strong> (r = ${rMW}). ${rMW<-0.3?'Sessões mais longas associam-se a maior perda no mesmo dia.':'O impacto isolado da duração do treino no peso diário é limitado — o efeito acumulado ao longo da semana é mais relevante.'}`);
-  if(bestDow>=0) bullets.push(`📅 <strong>${dowNames[bestDow]}</strong> é o dia com maior perda de peso média (${fmt2(dowAvgDelta[bestDow])} kg). ${worstDow>=0&&worstDow!==bestDow?`<strong>${dowNames[worstDow]}</strong> é o menos favorável (${fmt2(dowAvgDelta[worstDow])} kg) — pode refletir padrões de descanso ou alimentação no fim de semana.`:''}`);
-  if(bestWt) bullets.push(`💪 O treino <strong>${bestWt}</strong> está associado à maior perda no dia seguinte (${fmt2(Math.min(...wtAvg))} kg) — considere-o nos dias anteriores à pesagem. ${MX.workouts[bestWt]?`<span style="color:#64748b;font-size:0.75em">${MX.workouts[bestWt].exercises}</span>`:''}`);
-  if(nx) bullets.push(`🎯 Próximo treino agendado: <strong style="color:#00ff88">${nx.workoutCode}</strong>${nx.daysUntil===0?' (hoje)':(` em ${nx.daysUntil} dia(s)`)}. ${MX.workouts[nx.workoutCode]?.exercises||''}`);
 
-  const s0 = `<div style="line-height:2;font-size:0.82rem;color:#cbd5e1">
-    ${bullets.map(b=>`<div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05)">${b}</div>`).join('')}
-    <div style="margin-top:8px;font-size:0.7rem;color:#475569">Atualizado em ${new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})} · baseado em ${weights.length} pesagens e ${waters.length} registros de água.</div>
-  </div>`;
+  // ── Bullets coluna CICLO ATUAL ────────────────────────────────────────
+  const bulletsC = [];
+  const cycleWeightsS=cycleWeights.slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const cyclePesoAtual=cycleWeightsS.length?cycleWeightsS[cycleWeightsS.length-1].peso:(currentCycleIns.startWeight||curPeso);
+  const cyclePerdaTotal=parseFloat(((currentCycleIns.startWeight||weights[0]?.peso||0)-cyclePesoAtual).toFixed(2));
+  const cycleDias=Math.max(1,diffDays(cycleStartDate,todayISO()));
+  const cycleSem=(cycleDias/7);
+  const cycleRitmo=cycleSem>0?parseFloat((cyclePerdaTotal/cycleSem).toFixed(2)):0;
+  const cycleWkTotal=cycleWorkoutsIns.length;
+
+  // Regressão linear do ciclo atual
+  const cWxs=cycleWeightsS.map((_,i)=>i);
+  const cWys=cycleWeightsS.map(w=>w.peso);
+  const cReg=cycleWeightsS.length>=3?linreg(cWxs,cWys):null;
+  const cRatePerDay=cReg?cReg.slope:null;
+  const cDaysToGoal=cRatePerDay&&cRatePerDay<0?Math.ceil((goal-cyclePesoAtual)/cRatePerDay):null;
+  const cGoalDate=cDaysToGoal?(()=>{const d=new Date();d.setDate(d.getDate()+cDaysToGoal);return `${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}/${d.getFullYear()}`;})():null;
+
+  // Impacto por tipo de treino só do ciclo atual
+  const cWtMap={};
+  rowsCycle.forEach((r,i)=>{
+    if(i===0) return;
+    const prev=rowsCycle[i-1];
+    if(prev.workout){if(!cWtMap[prev.workout])cWtMap[prev.workout]=[];cWtMap[prev.workout].push(r.delta);}
+  });
+  const cWtKeys=Object.keys(cWtMap).sort();
+  const cWtAvg=cWtKeys.map(k=>parseFloat(mean(cWtMap[k]).toFixed(2)));
+  const cBestWt=cWtKeys.length?cWtKeys[cWtAvg.indexOf(Math.min(...cWtAvg))]:null;
+
+  bulletsC.push(`📍 <strong>${cycleLabel}</strong>: ${cycleDias} dias | <strong style="color:#00ff88">-${cyclePerdaTotal>0?cyclePerdaTotal:'0'} kg</strong> | ${cycleWkTotal} treinos realizados.`);
+  if(ps) bulletsC.push(`🏋️ Posição: <strong style="color:${levelColors2[ps.level.n]}">${ps.level.label}</strong>, semana ${ps.weekInLevel}/3. ${ps.daysLeftInLevel<=3?`<strong>Faltam ${ps.daysLeftInLevel} dias para o próximo nível!</strong>`:`~${ps.daysLeftInLevel} dias para avançar.`}`);
+  bulletsC.push(`⚡ Ritmo neste ciclo: <strong style="color:${cycleRitmo>=cfg.weeklyLossGoal?'#00ff88':'#f59e0b'}">${cycleRitmo} kg/sem</strong> (meta: ${cfg.weeklyLossGoal} kg/sem) — ${cycleRitmo>=cfg.weeklyLossGoal?'acima da meta! 🎯':'abaixo da meta, ajuste pode ser necessário.'}`);
+  if(cRatePerDay) bulletsC.push(`📈 Tendência do ciclo: <strong style="color:${cRatePerDay<0?'#00ff88':'#ef4444'}">${fmt2(cRatePerDay)} kg/dia</strong>. ${cDaysToGoal&&cDaysToGoal>0?`Meta estimada em ~${cDaysToGoal} dias (${cGoalDate}).`:'Mantenha a consistência!'}`);
+  if(nx) bulletsC.push(`🎯 Próximo treino: <strong style="color:#00ff88">${nx.workoutCode}</strong>${nx.daysUntil===0?' (hoje)':(` em ${nx.daysUntil} dia(s)`)}. <span style="color:#64748b;font-size:0.75em">${MX.workouts[nx.workoutCode]?.exercises||''}</span>`);
+  if(cBestWt) bulletsC.push(`💪 Treino mais eficaz no ciclo: <strong>${cBestWt}</strong> → ${fmt2(Math.min(...cWtAvg))} kg no dia seguinte.`);
+  if(cycleWeightsS.length>=7){
+    const last7C=cycleWeightsS.slice(-7);
+    const platC=Math.max(...last7C.map(p=>p.peso))-Math.min(...last7C.map(p=>p.peso));
+    if(platC<0.3) bulletsC.push(`⚠️ <strong>Possível platô detectado</strong>: variação de apenas ${platC.toFixed(2)} kg nos últimos 7 dias do ciclo. Considere variar intensidade ou revisar alimentação.`);
+  }
+  if(cycleWeightsS.length<3) bulletsC.push(`📝 Registre mais pesagens no ${cycleLabel} para ativar análises de tendência deste ciclo.`);
+
+  const now2=new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  const colStyle=`flex:1;min-width:280px;line-height:1.9;font-size:0.81rem;color:#cbd5e1`;
+  const rowStyle=`padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05)`;
+  const s0 = `<div style="display:flex;gap:0;flex-wrap:wrap;border:1px solid var(--border);border-radius:10px;overflow:hidden">
+    <div style="${colStyle};padding:14px 16px;background:rgba(255,255,255,.02);border-right:1px solid var(--border)">
+      <div style="font-size:0.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#60a5fa;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+        🌐 Visão Geral — Todos os Ciclos
+      </div>
+      ${bulletsGeral.map(b=>`<div style="${rowStyle}">${b}</div>`).join('')}
+    </div>
+    <div style="${colStyle};padding:14px 16px;background:rgba(96,165,250,.03)">
+      <div style="font-size:0.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#00ff88;margin-bottom:10px;display:flex;align-items:center;gap:6px">
+        ● ${cycleLabel} — Agora
+      </div>
+      ${bulletsC.map(b=>`<div style="${rowStyle}">${b}</div>`).join('')}
+    </div>
+  </div>
+  <div style="margin-top:8px;font-size:0.7rem;color:#475569">Atualizado em ${now2} · ${weights.length} pesagens · ${waters.length} registros de água · ${workouts.length} treinos no total.</div>`;
 
   document.getElementById('insights-content').innerHTML =
     section('🧠','Conclusões e Tendências', s0) +
@@ -3789,30 +3940,103 @@ function renderChatMessages() {
   el.scrollTop = el.scrollHeight;
 }
 
+// ── Attachment state ──────────────────────────────────────────────────────
+let _chatAttach = null; // { type:'pdf'|'image'|'text', data, mediaType, name }
+
+function chatAttachFile(e){
+  const file = e.target.files[0]; if(!file) return;
+  const name = file.name;
+  const ext = name.split('.').pop().toLowerCase();
+  const reader = new FileReader();
+
+  if(['jpg','jpeg','png','gif','webp'].includes(ext)){
+    reader.onload = ev => {
+      const b64 = ev.target.result.split(',')[1];
+      const mt = file.type || 'image/jpeg';
+      _chatAttach = { type:'image', data:b64, mediaType:mt, name };
+      _showAttachPreview(name);
+    };
+    reader.readAsDataURL(file);
+  } else if(ext==='pdf'){
+    reader.onload = ev => {
+      const b64 = ev.target.result.split(',')[1];
+      _chatAttach = { type:'pdf', data:b64, mediaType:'application/pdf', name };
+      _showAttachPreview(name);
+    };
+    reader.readAsDataURL(file);
+  } else {
+    // text / csv
+    reader.onload = ev => {
+      _chatAttach = { type:'text', data:ev.target.result, name };
+      _showAttachPreview(name);
+    };
+    reader.readAsText(file);
+  }
+  e.target.value = '';
+}
+
+function _showAttachPreview(name){
+  const p = document.getElementById('chatAttachPreview');
+  const n = document.getElementById('chatAttachName');
+  if(p){ p.style.display='flex'; }
+  if(n){ n.textContent = `📎 ${name}`; }
+}
+
+function chatClearAttach(){
+  _chatAttach = null;
+  const p = document.getElementById('chatAttachPreview');
+  if(p){ p.style.display='none'; }
+}
+
 async function chatSend() {
   const input = document.getElementById('chatInput');
   const btn = document.getElementById('chatSendBtn');
   const text = input.value.trim();
-  if (!text) return;
+  const attach = _chatAttach;
+  if (!text && !attach) return;
 
   const apiKey = DB.config.apiKey;
   if (!apiKey) { toast('⚠️ Configure a API Key na aba Config primeiro.'); return; }
 
-  chatAddMsg('user', text);
+  const displayText = text + (attach ? `\n📎 _${attach.name}_` : '');
+  chatAddMsg('user', displayText);
   input.value = '';
+  chatClearAttach();
   btn.disabled = true;
   btn.textContent = '...';
 
-  // Add thinking indicator
   chatHistory.push({ role: 'assistant', content: '⏳ _Analisando seus dados..._' });
   renderChatMessages();
 
   try {
+    // Build message content — may be array if attachment present
+    let userContent;
+    if (attach) {
+      const contentBlocks = [];
+      if (attach.type === 'image') {
+        contentBlocks.push({ type:'image', source:{ type:'base64', media_type:attach.mediaType, data:attach.data } });
+      } else if (attach.type === 'pdf') {
+        contentBlocks.push({ type:'document', source:{ type:'base64', media_type:'application/pdf', data:attach.data } });
+      } else {
+        // text file — inline as text block
+        contentBlocks.push({ type:'text', text:`Conteúdo do arquivo "${attach.name}":\n\n${attach.data.slice(0,12000)}` });
+      }
+      if (text) contentBlocks.push({ type:'text', text });
+      userContent = contentBlocks;
+    } else {
+      userContent = text;
+    }
+
+    // Build history — only plain string messages (skip turn with attachment for history simplicity)
     const messages = chatHistory
       .filter(m => m.content !== '⏳ _Analisando seus dados..._')
       .filter(m => !(m.role==='assistant' && m.content.startsWith('⚠️')))
       .filter(m => !(m.role==='assistant' && m.content.startsWith('👋')))
-      .map(m => ({ role: m.role, content: m.content }));
+      .map((m, idx, arr) => {
+        // Last user message = the one we just built (with attachment)
+        if (idx === arr.length - 1 && m.role === 'user') return { role:'user', content: userContent };
+        return { role: m.role, content: typeof m.content === 'string' ? m.content : String(m.content) };
+      });
 
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -3823,15 +4047,14 @@ async function chatSend() {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5',
-        max_tokens: 1024,
+        model: 'claude-sonnet-5',
+        max_tokens: 2048,
         system: buildSystemPrompt(),
-        messages: messages
+        messages
       })
     });
 
     const data = await resp.json();
-    // Remove thinking indicator
     chatHistory.pop();
 
     if (data.content && data.content[0]) {
