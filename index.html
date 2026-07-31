@@ -857,8 +857,8 @@
 
 <!-- ════════════════ ASSISTENTE ════════════════ -->
 <div id="page-assistente" class="page">
-  <div class="card" style="max-width:800px;margin:0 auto">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <div style="display:flex;align-items:center;gap:10px">
         <svg viewBox="0 0 60 66" width="36" height="36" xmlns="http://www.w3.org/2000/svg"><rect x="24" y="54" width="12" height="7" rx="2" fill="#b8860b"/><line x1="26" y1="54" x2="26" y2="61" stroke="#8B6914" stroke-width="0.7"/><line x1="30" y1="54" x2="30" y2="61" stroke="#8B6914" stroke-width="0.7"/><line x1="34" y1="54" x2="34" y2="61" stroke="#8B6914" stroke-width="0.7"/><path d="M12 38 Q12 56 30 57 Q48 56 48 38 L46 18 Q38 10 30 10 Q22 10 14 18 Z" fill="#d4950a"/><path d="M18 16 Q30 9 42 16 Q38 12 30 11 Q22 11 18 16Z" fill="#f0b429" opacity="0.6"/><line x1="30" y1="12" x2="30" y2="50" stroke="#b8860b" stroke-width="1.2" opacity="0.7"/><path d="M14 26 Q20 22 26 24" stroke="#b8860b" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M34 24 Q40 22 46 26" stroke="#b8860b" stroke-width="2" fill="none" stroke-linecap="round"/><ellipse cx="21" cy="31" rx="7" ry="6" fill="#1a1008"/><ellipse cx="21" cy="31" rx="5" ry="4.5" fill="#c97800"/><ellipse cx="21" cy="31" rx="3" ry="3" fill="#0d0800"/><ellipse cx="19" cy="29" rx="1.2" ry="1" fill="#fde68a" opacity="0.8"/><ellipse cx="39" cy="31" rx="7" ry="6" fill="#1a1008"/><ellipse cx="39" cy="31" rx="5" ry="4.5" fill="#c97800"/><ellipse cx="39" cy="31" rx="3" ry="3" fill="#0d0800"/><ellipse cx="37" cy="29" rx="1.2" ry="1" fill="#fde68a" opacity="0.8"/><path d="M27 38 L30 35 L33 38 L31 41 L29 41 Z" fill="#b8860b"/><ellipse cx="16" cy="38" rx="3.5" ry="5" fill="#c8870c" stroke="#b8760a" stroke-width="0.5"/><ellipse cx="44" cy="38" rx="3.5" ry="5" fill="#c8870c" stroke="#b8760a" stroke-width="0.5"/><rect x="19" y="44" width="22" height="8" rx="3" fill="#b8760a"/><rect x="20" y="45" width="20" height="6" rx="2" fill="#9a6008"/><line x1="20" y1="47" x2="40" y2="47" stroke="#7a4a06" stroke-width="0.8"/><line x1="20" y1="49" x2="40" y2="49" stroke="#7a4a06" stroke-width="0.8"/><line x1="24" y1="45" x2="24" y2="51" stroke="#7a4a06" stroke-width="0.8"/><line x1="28" y1="45" x2="28" y2="51" stroke="#7a4a06" stroke-width="0.8"/><line x1="32" y1="45" x2="32" y2="51" stroke="#7a4a06" stroke-width="0.8"/><line x1="36" y1="45" x2="36" y2="51" stroke="#7a4a06" stroke-width="0.8"/><circle cx="15" cy="29" r="1.2" fill="#f0b429"/><circle cx="45" cy="29" r="1.2" fill="#f0b429"/><circle cx="15" cy="44" r="1.2" fill="#f0b429"/><circle cx="45" cy="44" r="1.2" fill="#f0b429"/><path d="M18 17 Q30 10 42 17" stroke="#f0b429" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
         <div style="font-size:1.1rem;font-weight:700;color:var(--text-primary)">Assistente IA</div>
@@ -866,7 +866,7 @@
       <button class="btn btn-secondary" onclick="chatClear()" style="font-size:0.75rem;padding:5px 12px">🗑️ Limpar chat</button>
     </div>
     <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:16px">Faça perguntas sobre seus dados de treino, peso e evolução. O assistente tem acesso a todos os seus registros.</div>
-    <div id="chatMessages" style="min-height:300px;max-height:480px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;margin-bottom:16px;padding:4px 0"></div>
+    <div id="chatMessages" style="min-height:360px;max-height:calc(100vh - 380px);overflow-y:auto;display:flex;flex-direction:column;gap:12px;margin-bottom:16px;padding:4px 0"></div>
     <div id="chatAttachPreview" style="display:none;background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.25);border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:0.78rem;color:#60a5fa;align-items:center;gap:8px">
       <span id="chatAttachName" style="flex:1"></span>
       <button onclick="chatClearAttach()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:1rem;padding:0">✕</button>
@@ -880,7 +880,7 @@
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();chatSend();}"></textarea>
       <button class="btn btn-primary" onclick="chatSend()" id="chatSendBtn" style="padding:10px 20px;height:fit-content">Enviar</button>
     </div>
-    <div style="margin-top:8px;font-size:0.72rem;color:#475569">Enter para enviar · Shift+Enter para nova linha · 📎 Suporta PDF, imagem, TXT · Powered by Claude Haiku</div>
+    <div style="margin-top:8px;font-size:0.72rem;color:#475569">Enter para enviar · Shift+Enter para nova linha · 📎 Suporta PDF, imagem, TXT · Powered by Claude Sonnet</div>
   </div>
 </div>
 
