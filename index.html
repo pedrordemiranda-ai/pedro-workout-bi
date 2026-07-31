@@ -201,7 +201,19 @@
     .sweat-2 { animation: sweat-arc-2 1.4s ease-in infinite; animation-delay:.42s; }
     .sweat-3 { animation: sweat-arc-3 1.4s ease-in infinite; animation-delay:.78s; }
     .sweat-4 { animation: sweat-arc-4 1.4s ease-in infinite; animation-delay:.58s; }
-    .run-info { display:flex; justify-content:space-between; align-items:center; margin-top:6px; font-size:0.68rem; color:var(--text-muted); }
+    /* Run weight strip */
+    .run-weights { position:relative; height:28px; margin-top:2px; }
+    .run-w-start,.run-w-goal { position:absolute; bottom:0; display:flex; flex-direction:column; align-items:center; gap:2px; }
+    .run-w-start { left:0; }
+    .run-w-goal  { right:0; }
+    .run-w-cur   { position:absolute; bottom:0; display:flex; flex-direction:column; align-items:center; gap:2px; transform:translateX(-50%); transition:left 5s cubic-bezier(0.15,0,0.5,1); z-index:2; }
+    .run-w-dot   { width:5px; height:5px; border-radius:50%; background:rgba(148,163,184,.4); }
+    .run-w-dot-cur  { background:#38bdf8; box-shadow:0 0 6px rgba(56,189,248,.6); width:7px; height:7px; }
+    .run-w-dot-goal { background:#22c55e; }
+    .run-w-kg    { font-size:0.6rem; color:var(--text-muted); white-space:nowrap; }
+    .run-w-kg small { font-size:0.5rem; margin-left:1px; }
+    .run-w-kg-cur { color:#38bdf8; font-weight:700; font-size:0.65rem; }
+    .run-info { display:flex; justify-content:space-between; align-items:center; margin-top:4px; font-size:0.68rem; color:var(--text-muted); }
     .run-info strong { color:var(--accent-blue); }
 
     /* ALERTS */
@@ -2976,8 +2988,11 @@ function renderDashboard(){
   const wkLoss=totalLostKg>0?parseFloat((totalLostKg/weeksElapsed).toFixed(2)):0;
 
   // Program
+  const CYCLE_DAYS = 84; // 4 fases × 3 semanas × 7 dias
+  const allCycles = getCycles();
+  const totalProgramDays = allCycles.length * CYCLE_DAYS;
   let daysIn=0, progPct=0;
-  if(cfg.startDate){ daysIn=Math.max(0,diffDays(cfg.startDate,today)); progPct=Math.min(100,Math.round((daysIn/cfg.duration)*100)); }
+  if(cfg.startDate){ daysIn=Math.max(0,diffDays(cfg.startDate,today)); progPct=Math.min(100,Math.round((daysIn/totalProgramDays)*100)); }
 
   // Plateau
   const lastN=weights.slice(-cfg.plateauDays);
@@ -3040,52 +3055,43 @@ function renderDashboard(){
           <div class="run-road"></div>
           <div class="run-pfill" id="runFill" style="width:0%"></div>
           <div class="run-dashes"></div>
-          <div class="run-marker" style="left:0%"><div class="run-marker-tick"></div><div class="run-marker-lbl">Início</div></div>
-          <div class="run-marker" style="left:25%"><div class="run-marker-tick"></div><div class="run-marker-lbl">Mês 1</div></div>
-          <div class="run-marker" style="left:50%"><div class="run-marker-tick"></div><div class="run-marker-lbl">Meio</div></div>
-          <div class="run-marker" style="left:75%"><div class="run-marker-tick"></div><div class="run-marker-lbl">Mês 2</div></div>
-          <div class="run-marker" style="left:100%"><div style="font-size:1rem;margin-bottom:2px">🏁</div><div class="run-marker-lbl">Meta!</div></div>
+          ${(()=>{
+            const mkrs=[];
+            mkrs.push(`<div class="run-marker" style="left:0%"><div class="run-marker-tick"></div><div class="run-marker-lbl">Início</div></div>`);
+            allCycles.forEach((cyc,i)=>{
+              const midDay=(i*CYCLE_DAYS)+(CYCLE_DAYS/2);
+              const endDay=(i+1)*CYCLE_DAYS;
+              const midPct=(midDay/totalProgramDays*100).toFixed(1);
+              const endPct=(endDay/totalProgramDays*100).toFixed(1);
+              mkrs.push(`<div class="run-marker" style="left:${midPct}%"><div class="run-marker-tick"></div><div class="run-marker-lbl">C${i+1} meio</div></div>`);
+              if(i<allCycles.length-1) mkrs.push(`<div class="run-marker run-marker-cycle" style="left:${endPct}%"><div class="run-marker-tick" style="height:12px;background:rgba(255,200,0,.7)"></div><div class="run-marker-lbl" style="font-weight:700;color:#fbbf24">Ciclo ${i+2}</div></div>`);
+            });
+            mkrs.push(`<div class="run-marker" style="left:100%"><div style="font-size:1rem;margin-bottom:2px">🏁</div><div class="run-marker-lbl">Meta!</div></div>`);
+            return mkrs.join('');
+          })()}
           <div class="run-runner-el" id="runnerPos" style="left:2%">
             <div class="run-day-chip" id="runDayChip">Dia 1</div>
             <div class="runner-anim" style="position:relative">
               <div class="run-shadow"></div>
-              <!--
-                C-3PO Runner SVG.
-                Coordinate system: hip joint at (0,0).
-                All limbs designed so pivot = bounding-box top-left (front/right limbs)
-                or bounding-box top-right (back/left limbs), enabling correct CSS rotation.
-                Static forward lean applied via SVG transform="rotate(22, 0, 0)" on body group.
-              -->
               <svg class="runner-svg" viewBox="-26 -60 52 70" width="48" height="64" style="transform:rotate(22deg);transform-origin:center bottom;display:block;">
 
                 <!-- ══ BACK LIMBS ══ -->
                 <g class="r-thigh-b">
                   <rect x="-7" y="0" width="7" height="13" fill="none"/>
-                  <!-- Back thigh (gold, mostly covered by shorts) -->
                   <line x1="0" y1="0" x2="-7" y2="13" stroke="#9a6008" stroke-width="5" stroke-linecap="round"/>
                   <circle cx="-7" cy="13" r="3" fill="#b8760a"/>
                   <g class="r-shin-b">
                     <rect x="-12" y="13" width="5" height="11" fill="none"/>
-                    <!-- Back shin (gold) -->
                     <line x1="-7" y1="13" x2="-12" y2="24" stroke="#9a6008" stroke-width="4" stroke-linecap="round"/>
-                    <!-- ── BACK RUNNING SHOE ── -->
-                    <!-- Sole (light gray rubber) -->
                     <path d="M-8,26.5 Q-10,30 -16,29.5 Q-21,29 -21,27 L-20.5,25.5 Q-15,27.5 -8,26 Z" fill="#e2e8f0"/>
-                    <!-- Upper (blue) -->
                     <path d="M-8,24 Q-10,21 -15.5,21 Q-20.5,21.5 -21,24.5 L-20.5,25.5 Q-15,27.5 -8,26 Z" fill="#1d4ed8"/>
-                    <!-- Heel counter -->
                     <path d="M-8,24 L-8,26 Q-9.5,27 -10.5,26 L-10,23 Z" fill="#1e3a8a"/>
-                    <!-- Orange swoosh -->
                     <path d="M-9.5,25.5 Q-14.5,23 -21,25" stroke="#f97316" stroke-width="1.4" fill="none" stroke-linecap="round"/>
-                    <!-- Lace details -->
                     <line x1="-13" y1="21.8" x2="-13.5" y2="25.3" stroke="#93c5fd" stroke-width="0.7" stroke-linecap="round"/>
                     <line x1="-15.5" y1="21.5" x2="-16.2" y2="25" stroke="#93c5fd" stroke-width="0.7" stroke-linecap="round"/>
-                    <!-- Midsole white stripe -->
                     <path d="M-8.5,26 Q-14.5,28 -20.5,26.5" stroke="white" stroke-width="0.9" fill="none" opacity="0.6"/>
                   </g>
                 </g>
-
-                <!-- Back arm -->
                 <g class="r-arm-b">
                   <rect x="-14" y="-22" width="8" height="8" fill="none"/>
                   <line x1="-6" y1="-22" x2="-14" y2="-14" stroke="#9a6008" stroke-width="3.5" stroke-linecap="round"/>
@@ -3093,90 +3099,80 @@ function renderDashboard(){
                   <line x1="-14" y1="-14" x2="-11" y2="-7" stroke="#9a6008" stroke-width="3" stroke-linecap="round"/>
                 </g>
 
-                <!-- ══ FAT-SCALE BODY GROUP — scaleX driven by weight loss % ══ -->
-                <g id="runnerBody" transform="scale(1.7,1)">
+                <!-- ══ BODY GROUP (proporções fixas — barriga animada separadamente) ══ -->
+                <g id="runnerBody">
 
-                <!-- ══ TORSO (C-3PO gold base) ══ -->
+                <!-- Torso base gold -->
                 <path d="M-8,0 Q0,4 8,0 L6,-3 Q0,-5 -6,-3 Z" fill="#c8870c"/>
                 <path d="M-9,-3 L-10,-22 L10,-22 L9,-3 Z" fill="#d4950a"/>
 
-                <!-- ── RUNNING SINGLET (over gold torso) ── -->
-                <!-- Main singlet body - cyan/teal runner jersey -->
+                <!-- Singlet -->
                 <path d="M-8,-3 L-8.5,-21.5 L8.5,-21.5 L8,-3 Z" fill="#0891b2"/>
-                <!-- Side panels (darker) -->
                 <path d="M-8,-3 L-8.5,-21.5 L-5.5,-21.5 L-5.5,-3 Z" fill="#0e7490"/>
                 <path d="M8,-3 L8.5,-21.5 L5.5,-21.5 L5.5,-3 Z" fill="#0e7490"/>
-                <!-- Horizontal accent lines -->
                 <line x1="-8" y1="-10" x2="8" y2="-10" stroke="#22d3ee" stroke-width="0.8" opacity="0.7"/>
                 <line x1="-8" y1="-7" x2="8" y2="-7" stroke="#22d3ee" stroke-width="0.5" opacity="0.4"/>
-                <!-- V-neck collar -->
                 <path d="M-4,-21.5 L0,-17 L4,-21.5" stroke="#67e8f9" stroke-width="1.3" fill="#0e7490" stroke-linecap="round" stroke-linejoin="round"/>
-                <!-- Race number bib -->
                 <rect x="-3.5" y="-19" width="7" height="8" rx="1" fill="white" opacity="0.93"/>
                 <text x="0" y="-13.2" text-anchor="middle" font-size="5" font-weight="bold" fill="#0891b2">1</text>
-                <!-- Shoulder pads (gold, over jersey) -->
                 <ellipse cx="-10" cy="-22" rx="4.2" ry="2.6" fill="#b8760a"/>
                 <ellipse cx="10"  cy="-22" rx="4.2" ry="2.6" fill="#c8870c"/>
-                <!-- Neck rings (gold, over jersey) -->
                 <rect x="-4" y="-28" width="8" height="6" rx="2" fill="#b8760a"/>
                 <line x1="-2" y1="-28" x2="-2" y2="-22" stroke="#9a6008" stroke-width=".8"/>
                 <line x1="0"  y1="-28" x2="0"  y2="-22" stroke="#9a6008" stroke-width=".8"/>
                 <line x1="2"  y1="-28" x2="2"  y2="-22" stroke="#9a6008" stroke-width=".8"/>
 
-                <!-- ── RUNNING SHORTS (at hip, over thigh tops) ── -->
-                <!-- Waistband -->
-                <rect x="-10" y="-4.5" width="20" height="4" rx="2" fill="#b91c1c"/>
-                <!-- Shorts body -->
+                <!-- ══ BARRIGA — animated separately, rounds out naturally ══ -->
+                <!-- Shadow below belly for depth -->
+                <ellipse id="runnerBellyShd" cx="5" cy="1" rx="8" ry="2.5" fill="rgba(0,0,0,0.22)"/>
+                <!-- Main belly blob (singlet stretched over gut) -->
+                <ellipse id="runnerBelly" cx="5" cy="-7" rx="9" ry="8" fill="#0991c0"/>
+                <!-- Belly highlight (top-left, gives round 3D look) -->
+                <ellipse id="runnerBellyHL" cx="2" cy="-11" rx="3.5" ry="2.2" fill="#67e8f9" opacity="0.35"/>
+                <!-- Singlet strain line across belly -->
+                <path id="runnerBellyLine" d="M-1,-13 Q7,-8 5,-2" stroke="#22d3ee" stroke-width="0.7" fill="none" stroke-linecap="round" opacity="0.55"/>
+                <!-- Bottom belly shadow fade -->
+                <ellipse id="runnerBellyBot" cx="5" cy="-2" rx="7" ry="2" fill="rgba(0,0,0,0.15)"/>
+
+                <!-- Shorts -->
+                <rect id="runnerWaist" x="-10" y="-4.5" width="20" height="4" rx="2" fill="#b91c1c"/>
                 <path d="M-10,-0.5 Q-12.5,9 -6,11 L-1,5 L1,5 L6,11 Q12.5,9 10,-0.5 Z" fill="#dc2626"/>
-                <!-- White side stripes -->
                 <line x1="-9.5" y1="-0.5" x2="-6.5" y2="10.5" stroke="white" stroke-width="1.3" opacity="0.45" stroke-linecap="round"/>
                 <line x1="9.5" y1="-0.5" x2="6.5" y2="10.5" stroke="white" stroke-width="1.3" opacity="0.45" stroke-linecap="round"/>
-                <!-- Shorts hem detail -->
                 <path d="M-12.5,9 Q-6,12 0,10.5 Q6,12 12.5,9" stroke="#b91c1c" stroke-width="0.9" fill="none"/>
-                <!-- Center split -->
                 <line x1="0" y1="4" x2="0" y2="11" stroke="#b91c1c" stroke-width="0.9"/>
 
-                </g><!-- /runnerBody: torso + singlet + shorts scale with fat -->
+                </g><!-- /runnerBody -->
 
-                <!-- ══ FRONT LIMBS (outside fat group — limb proportions unchanged) ══ -->
+                <!-- ══ FRONT LIMBS ══ -->
                 <g class="r-thigh-f">
                   <line x1="0" y1="0" x2="7" y2="13" stroke="#d4950a" stroke-width="5" stroke-linecap="round"/>
                   <circle cx="7" cy="13" r="3" fill="#e0a020"/>
                   <g class="r-shin-f">
                     <line x1="7" y1="13" x2="12" y2="24" stroke="#d4950a" stroke-width="4" stroke-linecap="round"/>
-                    <!-- ── FRONT RUNNING SHOE ── -->
-                    <!-- Sole (light gray rubber) -->
                     <path d="M8,26.5 Q10,30 16,29.5 Q21,29 21,27 L20.5,25.5 Q15,27.5 8,26 Z" fill="#f1f5f9"/>
-                    <!-- Upper (brighter blue) -->
                     <path d="M8,24 Q10,21 15.5,21 Q20.5,21.5 21,24.5 L20.5,25.5 Q15,27.5 8,26 Z" fill="#2563eb"/>
-                    <!-- Heel counter -->
                     <path d="M8,24 L8,26 Q9.5,27 10.5,26 L10,23 Z" fill="#1d4ed8"/>
-                    <!-- Orange swoosh -->
                     <path d="M9.5,25.5 Q14.5,23 21,25" stroke="#f97316" stroke-width="1.4" fill="none" stroke-linecap="round"/>
-                    <!-- Lace details -->
                     <line x1="13" y1="21.8" x2="13.5" y2="25.3" stroke="#bfdbfe" stroke-width="0.7" stroke-linecap="round"/>
                     <line x1="15.5" y1="21.5" x2="16.2" y2="25" stroke="#bfdbfe" stroke-width="0.7" stroke-linecap="round"/>
-                    <!-- Midsole white stripe -->
                     <path d="M8.5,26 Q14.5,28 20.5,26.5" stroke="white" stroke-width="0.9" fill="none" opacity="0.7"/>
-                    <!-- Toe highlight -->
                     <path d="M20,24.5 Q21.8,25.2 21,26.5" stroke="#60a5fa" stroke-width="0.8" fill="none"/>
                   </g>
                 </g>
-
-                <!-- Front arm -->
                 <g class="r-arm-f">
                   <line x1="6" y1="-22" x2="14" y2="-14" stroke="#d4950a" stroke-width="3.5" stroke-linecap="round"/>
                   <circle cx="14" cy="-14" r="2.2" fill="#e0a020"/>
                   <line x1="14" y1="-14" x2="11" y2="-7" stroke="#d4950a" stroke-width="3" stroke-linecap="round"/>
                 </g>
 
-                <!-- ══ GOTAS DE SUOR (outside fat group) ══ -->
+                <!-- ══ SWEAT ══ -->
                 <path class="sweat sweat-1" d="M12,-43 C13.5,-46 15,-46 15,-43 C15,-40.5 12,-39 12,-43Z" fill="#60a5fa"/>
                 <path class="sweat sweat-2" d="M8,-45  C9.5,-48  11,-48  11,-45  C11,-42.5 8,-41  8,-45Z"  fill="#93c5fd"/>
                 <path class="sweat sweat-3" d="M15,-40 C16.5,-43 18,-43 18,-40 C18,-37.5 15,-36 15,-40Z" fill="#60a5fa"/>
                 <path class="sweat sweat-4" d="M6,-44  C7.5,-47  9,-47  9,-44  C9,-41.5  6,-40  6,-44Z"  fill="#7dd3fc"/>
 
-                <!-- ══ C-3PO HEAD (outside fat group — head size fixed) ══ -->
+                <!-- ══ HEAD ══ -->
                 <g transform="translate(0,-29) scale(0.38) translate(-30,-34)">
                   <path d="M12 38 Q12 56 30 57 Q48 56 48 38 L46 18 Q38 10 30 10 Q22 10 14 18 Z" fill="#d4950a"/>
                   <path d="M18 16 Q30 9 42 16 Q38 12 30 11 Q22 11 18 16Z" fill="#f0b429" opacity="0.6"/>
@@ -3213,46 +3209,69 @@ function renderDashboard(){
             </div>
           </div>
         </div>
+        <!-- Peso ao longo do corredor -->
+        <div class="run-weights">
+          <div class="run-w-start"><span class="run-w-kg">${startW.toFixed(1)}<small>kg</small></span><div class="run-w-dot"></div></div>
+          <div class="run-w-cur" id="runWeightCur" style="left:${progPct}%"><div class="run-w-dot run-w-dot-cur"></div><span class="run-w-kg run-w-kg-cur" id="runWeightLabel">${curW.toFixed(1)}<small>kg</small></span></div>
+          <div class="run-w-goal"><div class="run-w-dot run-w-dot-goal"></div><span class="run-w-kg">${goalW.toFixed(1)}<small>kg</small></span></div>
+        </div>
         <div class="run-info">
           <span>Dia 1</span>
-          <span>Dia <strong>${daysIn}</strong> de <strong>${cfg.duration}</strong> &nbsp;•&nbsp; <strong>${progPct}%</strong> concluído</span>
-          <span>Dia ${cfg.duration}</span>
+          <span>Dia <strong>${daysIn}</strong> de <strong>${totalProgramDays}</strong> &nbsp;•&nbsp; <strong>${progPct}%</strong> concluído &nbsp;•&nbsp; ${allCycles.length} ciclo${allCycles.length>1?'s':''}</span>
+          <span>Dia ${totalProgramDays}</span>
         </div>
       </div>
     </div>
   `;
 
-  // Animate runner + fill + day chip + fat-scale from start to current position
+  // Animate runner + fill + day chip + belly from start to current position
   const _runDuration=5000, _runDelay=200;
-  // Fat scale: 1.7 at program start → 1.0 when goal reached, proportional to % lost
-  const _fatStart=1.7, _fatEnd=1.0;
+  // Belly: fat state rx=9,ry=8 → target based on % of goal reached
   const _pctLost=Math.min(1,Math.max(0,(startW-curW)/Math.max(1,startW-goalW)));
-  const _fatTarget=_fatStart-_pctLost*(_fatStart-_fatEnd);
-  // Set initial fat state before animation starts
-  const _bodyEl=document.getElementById('runnerBody');
-  if(_bodyEl) _bodyEl.setAttribute('transform',`scale(${_fatStart.toFixed(3)},1)`);
+  const _bellyRxFat=9, _bellyRyFat=8, _bellyRxSlim=1.2, _bellyRySlim=1.0;
+  const _bellyRxTarget=_bellyRxFat-_pctLost*(_bellyRxFat-_bellyRxSlim);
+  const _bellyRyTarget=_bellyRyFat-_pctLost*(_bellyRyFat-_bellyRySlim);
+  // Set initial fat belly before animation
+  const _setbelly=(rx,ry)=>{
+    const b=document.getElementById('runnerBelly');
+    const bHL=document.getElementById('runnerBellyHL');
+    const bShd=document.getElementById('runnerBellyShd');
+    const bBot=document.getElementById('runnerBellyBot');
+    const bLine=document.getElementById('runnerBellyLine');
+    if(b){b.setAttribute('rx',rx.toFixed(2));b.setAttribute('ry',ry.toFixed(2));}
+    if(bHL){bHL.setAttribute('rx',(rx*0.38).toFixed(2));bHL.setAttribute('ry',(ry*0.27).toFixed(2));bHL.setAttribute('opacity',(rx/_bellyRxFat*0.45).toFixed(2));}
+    if(bShd){bShd.setAttribute('rx',(rx*0.88).toFixed(2));bShd.setAttribute('opacity',(rx/_bellyRxFat*0.28).toFixed(2));}
+    if(bBot){bBot.setAttribute('rx',(rx*0.77).toFixed(2));bBot.setAttribute('opacity',(rx/_bellyRxFat*0.2).toFixed(2));}
+    if(bLine) bLine.setAttribute('opacity',(rx/_bellyRxFat*0.6).toFixed(2));
+  };
+  _setbelly(_bellyRxFat,_bellyRyFat);
   setTimeout(()=>{
     const rp=document.getElementById('runnerPos');
     const rf=document.getElementById('runFill');
+    const wCur=document.getElementById('runWeightCur');
+    const wLbl=document.getElementById('runWeightLabel');
     if(rp) rp.style.left=Math.max(2,Math.min(98,progPct))+'%';
     if(rf) rf.style.width=progPct+'%';
     const chip=document.getElementById('runDayChip');
-    const bodyEl=document.getElementById('runnerBody');
     const t0=Date.now();
     const ease=t=>t<0.5?2*t*t:1-Math.pow(-2*t+2,2)/2;
     const tick=()=>{
       const p=Math.min(1,(Date.now()-t0)/_runDuration);
       const ep=ease(p);
       if(chip && daysIn>1) chip.textContent='Dia '+Math.max(1,Math.round(ep*daysIn));
-      // Animate fat: starts wide, slims down to current weight-loss proportion
-      if(bodyEl){
-        const fatNow=_fatStart-ep*(_fatStart-_fatTarget);
-        bodyEl.setAttribute('transform',`scale(${fatNow.toFixed(3)},1)`);
-      }
+      // Belly slims proportionally as animation progresses
+      const bellyRxNow=_bellyRxFat-ep*(_bellyRxFat-_bellyRxTarget);
+      const bellyRyNow=_bellyRyFat-ep*(_bellyRyFat-_bellyRyTarget);
+      _setbelly(bellyRxNow,bellyRyNow);
+      // Weight label animates from startW → curW
+      if(wLbl) wLbl.innerHTML=(startW-ep*(startW-curW)).toFixed(1)+'<small>kg</small>';
+      if(wCur) wCur.style.left=(ep*progPct).toFixed(1)+'%';
       if(p<1) requestAnimationFrame(tick);
       else {
         if(chip) chip.textContent='Dia '+daysIn;
-        if(bodyEl) bodyEl.setAttribute('transform',`scale(${_fatTarget.toFixed(3)},1)`);
+        _setbelly(_bellyRxTarget,_bellyRyTarget);
+        if(wLbl) wLbl.innerHTML=curW.toFixed(1)+'<small>kg</small>';
+        if(wCur) wCur.style.left=progPct+'%';
       }
     };
     requestAnimationFrame(tick);
