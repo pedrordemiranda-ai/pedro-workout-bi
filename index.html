@@ -4468,11 +4468,14 @@ async function chatSend() {
     let accumulated = '';
     let buf = '';
     let streamErr = null;
+    let rawCapture = '';
 
     mainLoop: while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      buf += decoder.decode(value, { stream: true });
+      const chunk = decoder.decode(value, { stream: true });
+      buf += chunk;
+      if (rawCapture.length < 600) rawCapture += chunk;
       const lines = buf.split('\n');
       buf = lines.pop() || '';
       for (const line of lines) {
@@ -4500,7 +4503,7 @@ async function chatSend() {
       btn.disabled = false; btn.textContent = 'Enviar'; return;
     }
 
-    const final = accumulated || '❌ Resposta vazia (sem texto recebido da API).';
+    const final = accumulated || `❌ Resposta vazia.\n\nRaw recebido:\n\`\`\`\n${rawCapture.slice(0,400)}\n\`\`\``;
     chatHistory[chatHistory.length - 1].content = final;
     _updateLastChatMsg(final, false);
 
