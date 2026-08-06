@@ -4447,8 +4447,8 @@ async function chatSend() {
         ...(attach?.type === 'pdf' ? { 'anthropic-beta': 'pdfs-2024-09-25' } : {})
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-5',
-        max_tokens: 2048,
+        model: 'claude-opus-4-5',
+        max_tokens: 4096,
         stream: true,
         system: buildSystemPrompt(),
         messages
