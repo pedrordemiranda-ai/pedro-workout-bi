@@ -4467,8 +4467,9 @@ async function chatSend() {
     const decoder = new TextDecoder();
     let accumulated = '';
     let buf = '';
+    let streamErr = null;
 
-    while (true) {
+    mainLoop: while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
@@ -4480,6 +4481,10 @@ async function chatSend() {
         if (!raw || raw === '[DONE]') continue;
         try {
           const parsed = JSON.parse(raw);
+          if (parsed.type === 'error') {
+            streamErr = parsed.error?.message || parsed.error?.type || JSON.stringify(parsed.error);
+            break mainLoop;
+          }
           if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
             accumulated += parsed.delta.text;
             chatHistory[chatHistory.length - 1].content = accumulated;
@@ -4489,7 +4494,13 @@ async function chatSend() {
       }
     }
 
-    const final = accumulated || '❌ Resposta vazia.';
+    if (streamErr) {
+      chatHistory.pop();
+      chatAddMsg('assistant', `❌ Erro da API: ${streamErr}`);
+      btn.disabled = false; btn.textContent = 'Enviar'; return;
+    }
+
+    const final = accumulated || '❌ Resposta vazia (sem texto recebido da API).';
     chatHistory[chatHistory.length - 1].content = final;
     _updateLastChatMsg(final, false);
 
