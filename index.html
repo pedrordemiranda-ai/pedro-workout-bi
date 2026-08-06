@@ -4468,14 +4468,16 @@ async function chatSend() {
     let accumulated = '';
     let buf = '';
     let streamErr = null;
-    let rawCapture = '';
+    let eventTypes = [];
+    let deltaTypes = [];
+    let totalBytes = 0;
 
     mainLoop: while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       const chunk = decoder.decode(value, { stream: true });
       buf += chunk;
-      if (rawCapture.length < 600) rawCapture += chunk;
+      totalBytes += value.length;
       const lines = buf.split('\n');
       buf = lines.pop() || '';
       for (const line of lines) {
@@ -4484,16 +4486,20 @@ async function chatSend() {
         if (!raw || raw === '[DONE]') continue;
         try {
           const parsed = JSON.parse(raw);
+          eventTypes.push(parsed.type);
           if (parsed.type === 'error') {
             streamErr = parsed.error?.message || parsed.error?.type || JSON.stringify(parsed.error);
             break mainLoop;
           }
-          if (parsed.type === 'content_block_delta' && parsed.delta?.type === 'text_delta') {
-            accumulated += parsed.delta.text;
-            chatHistory[chatHistory.length - 1].content = accumulated;
-            _updateLastChatMsg(accumulated, true);
+          if (parsed.type === 'content_block_delta') {
+            deltaTypes.push(parsed.delta?.type || '?');
+            if (parsed.delta?.type === 'text_delta') {
+              accumulated += parsed.delta.text;
+              chatHistory[chatHistory.length - 1].content = accumulated;
+              _updateLastChatMsg(accumulated, true);
+            }
           }
-        } catch {}
+        } catch(ex) { eventTypes.push('parse_err:'+ex.message.slice(0,30)); }
       }
     }
 
@@ -4503,7 +4509,7 @@ async function chatSend() {
       btn.disabled = false; btn.textContent = 'Enviar'; return;
     }
 
-    const final = accumulated || `❌ Resposta vazia.\n\nRaw recebido:\n\`\`\`\n${rawCapture.slice(0,400)}\n\`\`\``;
+    const final = accumulated || `❌ Resposta vazia.\n\nEventos: ${eventTypes.join(', ')}\nDeltas: ${deltaTypes.join(', ')}\nBytes: ${totalBytes}`;
     chatHistory[chatHistory.length - 1].content = final;
     _updateLastChatMsg(final, false);
 
